@@ -177,7 +177,7 @@ export default function AnimatedAuth({
       {/* Main Container */}
       <div
         ref={containerRef}
-        className="relative w-full max-w-4xl h-[500px] bg-[#0a0a0a] rounded-xl overflow-hidden flex"
+        className="relative w-full max-w-4xl h-[600px] md:h-[500px] bg-[#0a0a0a] rounded-xl overflow-hidden flex"
         style={{
           boxShadow: `0 0 20px ${glowColor}, inset 0 0 0 1px ${themeColor}40`,
         }}
@@ -191,7 +191,7 @@ export default function AnimatedAuth({
         {/* === LOGIN FORM (Left Side) === */}
         <div 
           ref={loginFormRef}
-          className="absolute left-0 top-0 w-1/2 h-full flex flex-col justify-center px-12 opacity-0 -translate-x-12 pointer-events-auto z-10"
+          className="absolute left-0 top-0 w-full md:w-1/2 h-full flex flex-col justify-center px-8 md:px-12 opacity-0 -translate-x-12 pointer-events-auto z-10"
         >
           <h2 className="text-3xl font-bold text-white mb-8">{loginTitle}</h2>
           <div className="space-y-4">
@@ -243,7 +243,7 @@ export default function AnimatedAuth({
         {/* === SIGN UP FORM (Right Side) === */}
         <div 
           ref={signupFormRef}
-          className="absolute right-0 top-0 w-1/2 h-full flex flex-col justify-start px-12 pointer-events-auto z-10 overflow-hidden pt-6"
+          className="absolute right-0 top-0 w-full md:w-1/2 h-full flex flex-col justify-start px-8 md:px-12 pointer-events-auto z-10 overflow-y-auto md:overflow-hidden pt-6"
         >
           <h2 className="text-2xl font-bold text-white mb-4">{signupTitle}</h2>
           <div className="space-y-2.5">
@@ -360,7 +360,7 @@ export default function AnimatedAuth({
         {/* === ANIMATED OVERLAY === */}
         <div
           ref={overlayRef}
-          className="absolute top-0 h-full w-[55%] z-20 flex overflow-hidden shadow-2xl"
+          className="absolute top-0 h-full w-[55%] z-20 hidden md:flex overflow-hidden shadow-2xl"
           style={{
             backgroundImage: "url('/Authsideimage.jpeg')",
             backgroundSize: 'cover',
