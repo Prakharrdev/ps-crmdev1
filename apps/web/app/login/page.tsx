@@ -5,12 +5,17 @@ import AnimatedAuth from "@/components/AnimatedAuth";
 
 export default function LoginPage() {
   return (
-    <div className="flex flex-col min-h-screen">
+    <div className="flex flex-col min-h-screen ">
         <main>
       <AnimatedAuth 
-        themeColor="#3b82f6" // Changes the primary accent to blue
+        themeColor="#b58d80" // Changes the primary accent to blue
         glowColor="rgba(59, 130, 246, 0.4)"
+        transitionTintColor="#d2b48c"
+        backgroundColor="#d2b48c"
+        backdropClassName="bg-gradient-to-br from-#d2c6be"
         leftPanelTitle="STAY CONNECTED!"
+        leftPanelImage = 'Image1.jpg'
+        rightPanelImage = 'Image2.jpg'
       />
       </main>
       <MegaFooter

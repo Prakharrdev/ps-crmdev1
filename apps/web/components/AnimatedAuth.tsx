@@ -10,29 +10,41 @@ import { supabase } from '@/src/lib/supabase';
 // Register the hook to ensure proper cleanup in React strict mode
 gsap.registerPlugin(useGSAP);
 
-interface AnimatedAuthProps {
+export interface AnimatedAuthProps {
   themeColor?: string;
   glowColor?: string;
+  backgroundColor?: string;
+  backdropClassName?: string;
+  transitionTintColor?: string;
   leftPanelTitle?: string;
   leftPanelSubtitle?: string;
   rightPanelTitle?: string;
   rightPanelSubtitle?: string;
   loginTitle?: string;
   signupTitle?: string;
+  leftPanelImage?: string;
+  rightPanelImage?: string;
 }
 
 const roles = ['admin', 'authority', 'citizen', 'worker'] as const;
 type Role = (typeof roles)[number];
 
+export const ANIMATED_AUTH_TRANSITION_TINT_COLOR = '#d2b48c';
+
 export default function AnimatedAuth({
   themeColor = '#8b5cf6', // Default purple (Tailwind violet-500)
   glowColor = 'rgba(139, 92, 246, 0.5)',
+  backgroundColor = '#0a0a0a',
+  backdropClassName = 'bg-gradient-to-br from-slate-100 via-stone-100 to-amber-50',
+  transitionTintColor = ANIMATED_AUTH_TRANSITION_TINT_COLOR,
   leftPanelTitle = 'WELCOME BACK!',
   leftPanelSubtitle = 'Lorem ipsum dolor sit amet consectetur adipisicing.',
   rightPanelTitle = 'HELLO FRIEND!',
   rightPanelSubtitle = 'Enter your personal details and start your journey with us.',
   loginTitle = 'Login',
   signupTitle = 'Sign Up',
+  leftPanelImage = '/Authsideimage.jpeg',
+  rightPanelImage = '/Authsideimage.jpeg',
 }: AnimatedAuthProps) {
   const [isLogin, setIsLogin] = useState(false);
   const [loginEmail, setLoginEmail] = useState('');
@@ -53,6 +65,8 @@ export default function AnimatedAuth({
   const containerRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const overlayTintRef = useRef<HTMLDivElement>(null);
+  const leftBgRef = useRef<HTMLDivElement>(null);
+  const rightBgRef = useRef<HTMLDivElement>(null);
   const overlayLeftTextRef = useRef<HTMLDivElement>(null);
   const overlayRightTextRef = useRef<HTMLDivElement>(null);
   const loginFormRef = useRef<HTMLDivElement>(null);
@@ -85,6 +99,8 @@ export default function AnimatedAuth({
       .to(overlayTintRef.current, { autoAlpha: 0, duration: 0.35, ease: 'power1.in' }, 0.55)
       .to(overlayLeftTextRef.current, { autoAlpha: 0, x: -50 }, 0)
       .to(overlayRightTextRef.current, { autoAlpha: 1, x: 0 }, 0.2)
+      .to(leftBgRef.current, { autoAlpha: 0 }, 0)
+      .to(rightBgRef.current, { autoAlpha: 1 }, 0)
       .to(signupFormRef.current, { autoAlpha: 0, x: 50 }, 0)
       .to(loginFormRef.current, { autoAlpha: 1, x: 0 }, 0.2);
     } else {
@@ -97,6 +113,8 @@ export default function AnimatedAuth({
       .to(overlayTintRef.current, { autoAlpha: 0, duration: 0.35, ease: 'power1.in' }, 0.55)
       .to(overlayRightTextRef.current, { autoAlpha: 0, x: 50 }, 0)
       .to(overlayLeftTextRef.current, { autoAlpha: 1, x: 0 }, 0.2)
+      .to(rightBgRef.current, { autoAlpha: 0 }, 0)
+      .to(leftBgRef.current, { autoAlpha: 1 }, 0)
       .to(loginFormRef.current, { autoAlpha: 0, x: -50 }, 0)
       .to(signupFormRef.current, { autoAlpha: 1, x: 0 }, 0.2);
     }
@@ -173,12 +191,13 @@ export default function AnimatedAuth({
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-black p-4">
+    <div className={`flex items-center justify-center min-h-screen ${backdropClassName} p-4`}>
       {/* Main Container */}
       <div
         ref={containerRef}
-        className="relative w-full max-w-4xl h-[500px] bg-[#0a0a0a] rounded-xl overflow-hidden flex"
+        className="relative w-full max-w-4xl h-[600px] md:h-[500px] rounded-xl overflow-hidden flex"
         style={{
+          backgroundColor,
           boxShadow: `0 0 20px ${glowColor}, inset 0 0 0 1px ${themeColor}40`,
         }}
       >
@@ -191,7 +210,7 @@ export default function AnimatedAuth({
         {/* === LOGIN FORM (Left Side) === */}
         <div 
           ref={loginFormRef}
-          className="absolute left-0 top-0 w-1/2 h-full flex flex-col justify-center px-12 opacity-0 -translate-x-12 pointer-events-auto z-10"
+          className="absolute left-0 top-0 w-full md:w-1/2 h-full flex flex-col justify-center px-8 md:px-12 opacity-0 -translate-x-12 pointer-events-auto z-10"
         >
           <h2 className="text-3xl font-bold text-white mb-8">{loginTitle}</h2>
           <div className="space-y-4">
@@ -243,7 +262,7 @@ export default function AnimatedAuth({
         {/* === SIGN UP FORM (Right Side) === */}
         <div 
           ref={signupFormRef}
-          className="absolute right-0 top-0 w-1/2 h-full flex flex-col justify-start px-12 pointer-events-auto z-10 overflow-hidden pt-6"
+          className="absolute right-0 top-0 w-full md:w-1/2 h-full flex flex-col justify-start px-8 md:px-12 pointer-events-auto z-10 overflow-y-auto md:overflow-hidden pt-6"
         >
           <h2 className="text-2xl font-bold text-white mb-4">{signupTitle}</h2>
           <div className="space-y-2.5">
@@ -360,25 +379,33 @@ export default function AnimatedAuth({
         {/* === ANIMATED OVERLAY === */}
         <div
           ref={overlayRef}
-          className="absolute top-0 h-full w-[55%] z-20 flex overflow-hidden shadow-2xl"
+          className="absolute top-0 h-full w-[55%] z-20 hidden md:flex overflow-hidden shadow-2xl"
           style={{
-            backgroundImage: "url('/Authsideimage.jpeg')",
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
             // Initial state: Covering left side (Sign Up mode)
             left: '0%',
             clipPath: 'polygon(0% 0%, 100% 0%, 80% 100%, 0% 100%)',
           }}
         >
           <div
+            ref={leftBgRef}
+            className="absolute inset-0 bg-cover bg-center z-0"
+            style={{ backgroundImage: `url('${leftPanelImage}')` }}
+          />
+          <div
+            ref={rightBgRef}
+            className="absolute inset-0 bg-cover bg-center z-0 opacity-0 invisible"
+            style={{ backgroundImage: `url('${rightPanelImage}')` }}
+          />
+          <div
             ref={overlayTintRef}
-            className="absolute inset-0 bg-[#d2b48c] opacity-0"
+            className="absolute inset-0 opacity-0 z-10"
+            style={{ backgroundColor: transitionTintColor }}
           />
 
           {/* Overlay Content Left (Visible when overlay is on the left) */}
           <div 
             ref={overlayLeftTextRef}
-            className="absolute inset-0 z-10 flex flex-col justify-center items-start px-12 w-[calc(100%/0.55*0.5)]"
+            className="absolute inset-0 z-20 flex flex-col justify-center items-start px-12 w-[calc(100%/0.55*0.5)]"
           >
             <h1 className="text-4xl font-bold text-white mb-4 leading-tight">
               {leftPanelTitle.split(' ').map((word, i) => (
@@ -393,7 +420,7 @@ export default function AnimatedAuth({
           {/* Overlay Content Right (Visible when overlay is on the right) */}
           <div 
             ref={overlayRightTextRef}
-            className="absolute right-0 inset-y-0 z-10 flex flex-col justify-center items-end px-12 w-[calc(100%/0.55*0.5)] text-right opacity-0"
+            className="absolute right-0 inset-y-0 z-20 flex flex-col justify-center items-end px-12 w-[calc(100%/0.55*0.5)] text-right opacity-0"
           >
             <h1 className="text-4xl font-bold text-white mb-4 leading-tight">
               {rightPanelTitle.split(' ').map((word, i) => (
