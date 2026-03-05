@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import gsap from "gsap";
 import { useTheme } from "@/components/ThemeProvider";
+import Link from "next/link";
 
 // 0. Color Interface & Constants
 export interface SidebarThemeColors {
@@ -216,7 +217,7 @@ const Sidebar: React.FC<SidebarConfig> = ({
                 {item.isActive && (
                   <div className={`absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-8 rounded-r-md ${colors.activeIndicator}`} />
                 )}
-                <a 
+                <Link 
                   href={item.href} 
                   className={`
                     flex items-center ${isCollapsed ? "justify-center px-2" : "justify-start px-4"} py-3 ml-2 rounded-xl font-medium transition-all duration-300
@@ -238,7 +239,7 @@ const Sidebar: React.FC<SidebarConfig> = ({
                       {item.badge}
                     </span>
                   )}
-                </a>
+                </Link>
 
                 {item.badge && isCollapsed && (
                   <div className={`pointer-events-none absolute top-2 right-2 w-2 h-2 rounded-full ${colors.badgeBg} transition-all duration-300 opacity-100 scale-100`} />
@@ -265,7 +266,7 @@ const Sidebar: React.FC<SidebarConfig> = ({
           </button>
 
           {bottomNavigation.map((item) => (
-            <a 
+            <Link 
               key={item.id}
               href={item.href} 
               className={`menu-item flex items-center ${isCollapsed ? "justify-center px-2 gap-0" : "justify-start px-4 gap-4"} py-3 ml-2 rounded-xl font-medium transition-all duration-300 ${colors.textMuted} ${colors.textHover} ${colors.bgHover}`}
@@ -275,7 +276,7 @@ const Sidebar: React.FC<SidebarConfig> = ({
               <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isCollapsed ? "max-w-0 opacity-0" : "max-w-[200px] opacity-100"}`}>
                 {item.name}
               </span>
-            </a>
+            </Link>
           ))}
         </div>
       </aside>

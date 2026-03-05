@@ -3,16 +3,18 @@
 import { useState } from "react";
 import { Flame, LayoutGrid, MapPin, Menu, Ticket } from "lucide-react";
 import Sidebar, { defaultSidebarConfig, SidebarNavigationItem } from "@/components/Sidebar";
+import { usePathname } from "next/navigation";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const pathname = usePathname();
 
   const citizenNavigation: SidebarNavigationItem[] = [
-    { id: "dashboard", name: "Dashboard", icon: <LayoutGrid size={20} strokeWidth={2.5} />, href: "#", isActive: true },
-    { id: "track", name: "Your Tickets", icon: <Ticket size={20} strokeWidth={2} />, href: "#" },
-    { id: "projects", name: "Heatmap", icon: <Flame size={20} strokeWidth={2} />, href: "/citizendashboard/heatmap", },
-    { id: "reports", name: "Nearby Tickets", icon: <MapPin size={20} strokeWidth={2} />, href: "#" },
+    { id: "dashboard", name: "Dashboard", icon: <LayoutGrid size={20} strokeWidth={2.5} />, href: "/citizen", isActive: pathname === "/citizen" },
+    { id: "track", name: "Your Tickets", icon: <Ticket size={20} strokeWidth={2} />, href: "/citizen/tickets", isActive: pathname === "/citizen/tickets" },
+    { id: "projects", name: "Heatmap", icon: <Flame size={20} strokeWidth={2} />, href: "/citizen/heatmap", isActive: pathname === "/citizen/heatmap" },
+    { id: "reports", name: "Nearby Tickets", icon: <MapPin size={20} strokeWidth={2} />, href: "/citizen/reports", isActive: pathname === "/citizen/reports" },
   ];
 
   const sidebarConfig = {
