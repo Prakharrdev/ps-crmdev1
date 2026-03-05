@@ -84,6 +84,7 @@ export default function AnimatedAuth({
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [loginRole, setLoginRole] = useState<Role>('citizen');
   const [signupName, setSignupName] = useState('');
   const [signupEmail, setSignupEmail] = useState('');
   const [signupPassword, setSignupPassword] = useState('');
@@ -167,7 +168,7 @@ export default function AnimatedAuth({
     setMessage('');
     setLoading(true);
 
-    const { error: loginError } = await supabase.auth.signInWithPassword({
+    const { data, error: loginError } = await supabase.auth.signInWithPassword({
       email: loginEmail.trim(),
       password: loginPassword,
     });
@@ -178,8 +179,36 @@ export default function AnimatedAuth({
       return;
     }
 
+    const userId = data.user?.id;
+    if (!userId) {
+      setError('Login failed. Please try again.');
+      setLoading(false);
+      return;
+    }
+
+    // Verify selected role matches the role stored in the database
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', userId)
+      .single();
+
+    if (profileError || !profile) {
+      setError('Could not verify role. Please try again.');
+      await supabase.auth.signOut();
+      setLoading(false);
+      return;
+    }
+
+    if (profile.role !== loginRole) {
+      setError('Wrong credentials');
+      await supabase.auth.signOut();
+      setLoading(false);
+      return;
+    }
+
     setLoading(false);
-    router.push('/citizendashboard');
+    router.push(`/${loginRole}`);
   };
 
   const handleSignup = async () => {
@@ -289,15 +318,32 @@ export default function AnimatedAuth({
               </button>
             </div>
           </div>
+          <div className="mt-4">
+            <p className="text-[11px] mb-1.5" style={{ color: activePlaceholderColor }}>Login as</p>
+            <div className="flex flex-wrap gap-3">
+              {roles.map((role) => (
+                <label key={role} className="text-[11px] capitalize flex items-center gap-1.5" style={{ color: activePlaceholderColor }}>
+                  <input
+                    type="radio"
+                    name="login-role"
+                    value={role}
+                    checked={loginRole === role}
+                    onChange={() => setLoginRole(role)}
+                  />
+                  {role}
+                </label>
+              ))}
+            </div>
+          </div>
           <button 
             onClick={handleLogin}
             disabled={loading}
-            className="w-full mt-8 py-3 rounded-full text-white font-semibold transition-transform hover:scale-105"
+            className="w-full mt-5 py-3 rounded-full text-white font-semibold transition-transform hover:scale-105"
             style={{ backgroundColor: activeThemeColor }}
           >
             {loading ? 'Please wait...' : loginTitle}
           </button>
-          <p className="text-xs text-gray-400 mt-6 text-center">
+          <p className="text-xs text-gray-400 mt-4 text-center">
             Don't have an account?{' '}
             <button onClick={() => setIsLogin(false)} style={{ color: activeThemeColor }} className="hover:underline">
               Sign Up
