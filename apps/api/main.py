@@ -44,6 +44,20 @@ gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 REVERSE_GEOCODE_CACHE: Dict[str, Dict[str, str]] = {}
 
+ISSUE_TYPE_AUTHORITY_KEYWORDS = [
+    (["street light", "light", "electricity", "power", "wire", "transformer"], "DISCOM"),
+    (["garbage", "waste", "sanitation", "sweeping", "toilet", "drain", "sewage"], "MCD"),
+    (["pothole", "road", "flyover", "bridge", "infrastructure", "lane"], "PWD"),
+    (["water", "pipe", "sewer"], "DJB"),
+    (["traffic", "signal", "parking", "accident"], "TRAFFIC_POLICE"),
+    (["crime", "safety", "theft", "harassment"], "DELHI_POLICE"),
+    (["metro", "station", "escalator", "lift"], "DMRC"),
+    (["pollution", "burning", "noise", "industrial"], "DPCC"),
+    (["tree", "forest"], "FOREST_DEPT"),
+]
+
+NDMC_LOCALITY_HINTS = ["connaught", "cp", "lutyens", "chanakyapuri", "janpath"]
+
 
 # =========================================================
 # 2. FASTAPI INITIALIZATION
@@ -373,6 +387,39 @@ def build_complaint_record(
     }
 
 
+def _in_ndmc_zone(latitude: float, longitude: float) -> bool:
+    return 28.62 <= latitude <= 28.64 and 77.19 <= longitude <= 77.23
+
+
+def _infer_authority_from_issue_type(issue_type: str) -> Optional[str]:
+    value = issue_type.lower()
+    for keywords, authority in ISSUE_TYPE_AUTHORITY_KEYWORDS:
+        if any(k in value for k in keywords):
+            return authority
+    return None
+
+
+def route_authority(
+    *,
+    issue_type: str,
+    latitude: float,
+    longitude: float,
+    location: Dict[str, str],
+    default_authority: str,
+) -> str:
+    inferred = _infer_authority_from_issue_type(issue_type)
+    routed = inferred or default_authority
+
+    locality = (location.get("locality") or "").lower()
+    pincode = (location.get("pincode") or "").strip()
+    is_ndmc = _in_ndmc_zone(latitude, longitude) or any(h in locality for h in NDMC_LOCALITY_HINTS) or pincode in {"110001", "110011", "110003"}
+
+    if is_ndmc and routed in {"MCD", "PWD", "DISCOM"}:
+        return "NDMC"
+
+    return routed
+
+
 # =========================================================
 # 6. GEMINI ANALYSIS FUNCTION
 # =========================================================
@@ -579,12 +626,19 @@ async def analyze(
     category = CHILD_CATEGORIES[child_id]
     severity_db = SEVERITY_MAP[result["severity"]]
     ward_name = location["locality"] or "Unknown locality"
+    routed_authority = route_authority(
+        issue_type=category["name"],
+        latitude=latitude,
+        longitude=longitude,
+        location=location,
+        default_authority=category["authority"],
+    )
 
     return TicketPreview(
         child_id=child_id,
         issue_name=category["name"],
         parent_id=category["parent"],
-        authority=category["authority"],
+        authority=routed_authority,
         title=result["title"],
         description=result["description"],
         severity=result["severity"],
@@ -646,6 +700,13 @@ async def confirm(
     derived_pincode = location["pincode"] or (pincode or "000000")
     formatted_address = location["formatted_address"]
     digipin = location["digipin"]
+    routed_authority = route_authority(
+        issue_type=category["name"],
+        latitude=latitude,
+        longitude=longitude,
+        location=location,
+        default_authority=category["authority"],
+    )
 
     # 2. Upload image to Supabase Storage
     image_data = await image.read()
@@ -672,7 +733,7 @@ async def confirm(
         pincode=derived_pincode,
         city=location["city"] or "Delhi",
         district=location["district"],
-        authority=category["authority"],
+        authority=routed_authority,
         status="submitted",
         digipin=digipin,
     )
@@ -717,7 +778,7 @@ async def confirm(
         complaint_id=inserted["id"],
         child_id=child_id,
         issue_name=category["name"],
-        authority=category["authority"],
+        authority=routed_authority,
         title=title,
         severity_db=severity_db,
         status="submitted",

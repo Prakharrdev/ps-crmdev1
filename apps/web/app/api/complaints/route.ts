@@ -8,6 +8,18 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const mapplsApiKey = process.env.MAPPLS_API_KEY ?? process.env.NEXT_PUBLIC_MAPPLS_API_KEY ?? "";
 const reverseGeocodeCache = new Map<string, ReverseGeo>();
+const issueTypeAuthorityKeywords: Array<{ keywords: string[]; authority: string }> = [
+  { keywords: ["street light", "light", "electricity", "power", "wire", "transformer"], authority: "DISCOM" },
+  { keywords: ["garbage", "waste", "sanitation", "sweeping", "toilet", "drain", "sewage"], authority: "MCD" },
+  { keywords: ["pothole", "road", "flyover", "bridge", "infrastructure", "lane"], authority: "PWD" },
+  { keywords: ["water", "pipe", "sewer"], authority: "DJB" },
+  { keywords: ["traffic", "signal", "parking", "accident"], authority: "TRAFFIC_POLICE" },
+  { keywords: ["crime", "safety", "theft", "harassment"], authority: "DELHI_POLICE" },
+  { keywords: ["metro", "station", "escalator", "lift"], authority: "DMRC" },
+  { keywords: ["pollution", "burning", "noise", "industrial"], authority: "DPCC" },
+  { keywords: ["tree", "forest"], authority: "FOREST_DEPT" },
+];
+const ndmcLocalityHints = ["connaught", "cp", "lutyens", "chanakyapuri", "janpath"];
 
 // Use a server-side Supabase client
 const supabase = createClient<Database>(supabaseUrl, supabaseServiceKey);
@@ -196,6 +208,39 @@ function buildCanonicalComplaintRecord(input: {
   };
 }
 
+function inferAuthorityFromIssueType(issueType: string): string | null {
+  const value = issueType.toLowerCase();
+  for (const row of issueTypeAuthorityKeywords) {
+    if (row.keywords.some((keyword) => value.includes(keyword))) return row.authority;
+  }
+  return null;
+}
+
+function inNdmcZone(lat: number, lng: number): boolean {
+  return lat >= 28.62 && lat <= 28.64 && lng >= 77.19 && lng <= 77.23;
+}
+
+function routeAuthority(input: {
+  issueType: string;
+  latitude: number;
+  longitude: number;
+  locality: string;
+  pincode: string;
+  defaultAuthority: string;
+}): string {
+  const inferred = inferAuthorityFromIssueType(input.issueType);
+  const routed = inferred ?? input.defaultAuthority;
+
+  const locality = input.locality.toLowerCase();
+  const ndmc =
+    inNdmcZone(input.latitude, input.longitude) ||
+    ndmcLocalityHints.some((hint) => locality.includes(hint)) ||
+    ["110001", "110011", "110003"].includes(input.pincode);
+
+  if (ndmc && ["MCD", "PWD", "DISCOM"].includes(routed)) return "NDMC";
+  return routed;
+}
+
 /**
  * POST /api/complaints
  * Creates a new complaint in Supabase.
@@ -266,6 +311,14 @@ export async function POST(req: NextRequest) {
     status: "submitted",
     digipin: resolvedDigipin,
   });
+  canonicalComplaint.authority = routeAuthority({
+    issueType: canonicalComplaint.issue_type,
+    latitude,
+    longitude,
+    locality: resolved.locality,
+    pincode: canonicalComplaint.pincode,
+    defaultAuthority: canonicalComplaint.authority,
+  });
 
   // Build PostGIS WKT POINT string
   const locationWKT = `SRID=4326;POINT(${longitude} ${latitude})`;
@@ -284,7 +337,7 @@ export async function POST(req: NextRequest) {
       pincode: canonicalComplaint.pincode,
       digipin: canonicalComplaint.digipin,
       address_text: addressWithMeta,
-      assigned_department: assigned_department ?? null,
+      assigned_department: canonicalComplaint.authority,
       city: canonicalComplaint.city,
     })
     .select("id, ticket_id, title, status, created_at")

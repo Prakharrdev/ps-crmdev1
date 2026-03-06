@@ -6,6 +6,7 @@ import gsap from "gsap";
 import { sendToGemini } from "@/lib/gemini";
 import type { ChatMessage, ExtractedComplaint, GeminiResponse } from "@/lib/gemini";
 import { supabase } from "@/src/lib/supabase";
+import LocationPinPicker from "@/components/LocationPinPicker";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -99,6 +100,8 @@ export default function ChatWidget() {
   const [pendingComplaint, setPendingComplaint] = useState<ExtractedComplaint | null>(null);
   const [pendingImagePreview, setPendingImagePreview] = useState<ImageTicketPreview | null>(null);
   const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
+  const [pendingLocation, setPendingLocation] = useState<DeviceLocation | null>(null);
+  const [locationConfirmed, setLocationConfirmed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
@@ -264,6 +267,13 @@ export default function ChatWidget() {
           setPendingImagePreview(preview);
           setPendingImageFile(file);
           setPendingComplaint(null); // clear any text-based pending
+          setPendingLocation({
+            lat: preview.latitude,
+            lng: preview.longitude,
+            accuracy: preview.accuracy,
+            timestamp: preview.timestamp,
+          });
+          setLocationConfirmed(false);
 
           addBotMessage(preview.confirm_prompt, { imagePreview: preview });
         } catch (err) {
@@ -288,6 +298,10 @@ export default function ChatWidget() {
 
     // If the user typed YES and we have a pending image preview → confirm via FastAPI
     if (pendingImagePreview && /^(yes|confirm|submit|haan|ha|हां)$/i.test(trimmed)) {
+      if (!locationConfirmed || !pendingLocation) {
+        addBotMessage("📍 Please confirm your location first. You can move the pin and then tap **Confirm location**.");
+        return;
+      }
       setMessages((prev) => [...prev, { id: uid(), role: "user", text: trimmed }]);
       scrollToBottom();
       await confirmImageTicket();
@@ -296,6 +310,10 @@ export default function ChatWidget() {
 
     // If the user typed YES and we have a pending text-based complaint
     if (pendingComplaint && /^(yes|confirm|submit|haan|ha|हां)$/i.test(trimmed)) {
+      if (!locationConfirmed || !pendingLocation) {
+        addBotMessage("📍 Please confirm your location first. You can move the pin and then tap **Confirm location**.");
+        return;
+      }
       setMessages((prev) => [...prev, { id: uid(), role: "user", text: trimmed }]);
       scrollToBottom();
       await submitComplaint();
@@ -315,6 +333,9 @@ export default function ChatWidget() {
       if (res.extracted) {
         setPendingComplaint(res.extracted);
         setPendingImagePreview(null);
+        const currentLocation = await getLocation();
+        setPendingLocation(currentLocation);
+        setLocationConfirmed(false);
       }
 
       addBotMessage(res.reply, { extracted: res.extracted });
@@ -340,12 +361,18 @@ export default function ChatWidget() {
       }
 
       const formData = new FormData();
+      const submitLocation = pendingLocation ?? {
+        lat: pendingImagePreview.latitude,
+        lng: pendingImagePreview.longitude,
+        accuracy: pendingImagePreview.accuracy,
+        timestamp: pendingImagePreview.timestamp,
+      };
       formData.append("image", pendingImageFile);
       formData.append("user_text", "Confirmed by user");
-      formData.append("latitude", pendingImagePreview.latitude.toString());
-      formData.append("longitude", pendingImagePreview.longitude.toString());
-      formData.append("accuracy", pendingImagePreview.accuracy.toString());
-      formData.append("timestamp", pendingImagePreview.timestamp);
+      formData.append("latitude", submitLocation.lat.toString());
+      formData.append("longitude", submitLocation.lng.toString());
+      formData.append("accuracy", submitLocation.accuracy.toString());
+      formData.append("timestamp", submitLocation.timestamp);
       formData.append("child_id", pendingImagePreview.child_id.toString());
       formData.append("title", pendingImagePreview.title);
       formData.append("description", pendingImagePreview.description);
@@ -367,6 +394,8 @@ export default function ChatWidget() {
       setSubmitted(true);
       setPendingImagePreview(null);
       setPendingImageFile(null);
+      setPendingLocation(null);
+      setLocationConfirmed(false);
       addBotMessage(
         `✅ **Complaint submitted successfully!**\n\n🎫 Ticket ID: **${created.ticket_id}**\n📋 Issue: **${created.issue_name}**\n🏢 Department: **${created.authority}**\nStatus: **Submitted**\n\nYou can track your complaint from the "Your Tickets" section. Is there anything else I can help you with?`,
       );
@@ -394,7 +423,7 @@ export default function ChatWidget() {
         return;
       }
 
-      const { lat, lng, accuracy, timestamp } = await getLocation();
+      const submitLocation = pendingLocation ?? (await getLocation());
       const categoryId = categoryFromIssueType(pendingComplaint.issue_type);
       const severityLevel = severityToLevel(pendingComplaint.severity);
 
@@ -404,13 +433,14 @@ export default function ChatWidget() {
         body: JSON.stringify({
           citizen_id: user.id,
           category_id: categoryId,
+          issue_type: pendingComplaint.issue_type,
           title: pendingComplaint.title,
           description: pendingComplaint.description,
           severity: severityLevel,
-          latitude: lat,
-          longitude: lng,
-          accuracy,
-          timestamp,
+          latitude: submitLocation.lat,
+          longitude: submitLocation.lng,
+          accuracy: submitLocation.accuracy,
+          timestamp: submitLocation.timestamp,
           city: "Delhi",
         }),
       });
@@ -423,6 +453,8 @@ export default function ChatWidget() {
 
       setSubmitted(true);
       setPendingComplaint(null);
+      setPendingLocation(null);
+      setLocationConfirmed(false);
       addBotMessage(
         `✅ **Complaint submitted successfully!**\n\n🎫 Ticket ID: **${data.complaint?.ticket_id ?? data.complaint?.id}**\nStatus: **Submitted**\n\nYou can track your complaint from the "Your Tickets" section. Is there anything else I can help you with?`,
       );
@@ -600,6 +632,50 @@ export default function ChatWidget() {
 
           {/* -- Input bar -- */}
           <div className="border-t border-gray-200 bg-white px-3 py-2 dark:border-gray-700 dark:bg-gray-900">
+            {hasPending && pendingLocation && (
+              <div className="mb-2 rounded-lg border border-gray-200 bg-gray-50 p-2 dark:border-gray-700 dark:bg-gray-800">
+                <p className="text-xs font-semibold text-gray-700 dark:text-gray-200">Detected location</p>
+                <p className="mb-2 text-[11px] text-gray-600 dark:text-gray-300">
+                  Lat {pendingLocation.lat.toFixed(6)}, Lng {pendingLocation.lng.toFixed(6)} | Accuracy {Math.round(pendingLocation.accuracy)}m
+                </p>
+                <LocationPinPicker
+                  lat={pendingLocation.lat}
+                  lng={pendingLocation.lng}
+                  onPinMove={(lat, lng) => {
+                    setPendingLocation((prev) => ({
+                      lat,
+                      lng,
+                      accuracy: prev?.accuracy ?? 9999,
+                      timestamp: new Date().toISOString(),
+                    }));
+                    setLocationConfirmed(false);
+                  }}
+                />
+                <div className="mt-2 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setLocationConfirmed(true)}
+                    className="rounded-md bg-[#4f392e] px-2 py-1 text-xs font-medium text-white hover:bg-[#b4725a]"
+                  >
+                    Confirm location
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const loc = await getLocation();
+                      setPendingLocation(loc);
+                      setLocationConfirmed(false);
+                    }}
+                    className="rounded-md border border-gray-300 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+                  >
+                    Move pin to GPS
+                  </button>
+                  <span className={`text-[11px] ${locationConfirmed ? "text-green-600" : "text-amber-600"}`}>
+                    {locationConfirmed ? "Location confirmed" : "Move pin if needed, then confirm"}
+                  </span>
+                </div>
+              </div>
+            )}
             <div className="flex items-center gap-2">
               {/* + button for image upload */}
               <button
@@ -618,7 +694,7 @@ export default function ChatWidget() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={hasPending ? "Type YES to submit…" : "Describe your issue…"}
+                placeholder={hasPending ? "Confirm location, then type YES to submit…" : "Describe your issue…"}
                 disabled={submitting}
                 className="flex-1 rounded-full border border-gray-200 bg-gray-50 px-4 py-2 text-sm text-gray-800 outline-none transition-colors placeholder:text-gray-400 focus:border-[#b4725a] dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500 dark:focus:border-purple-500"
               />
