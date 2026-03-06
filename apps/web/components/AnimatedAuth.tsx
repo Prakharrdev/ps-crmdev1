@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import gsap from 'gsap';
 import { useGSAP } from '@gsap/react';
 import { User, Lock, Mail } from 'lucide-react';
@@ -80,7 +80,14 @@ export default function AnimatedAuth({
   rightPanelImage = '/Authsideimage.jpeg',
 }: AnimatedAuthProps) {
   const { theme } = useTheme();
-  const [isLogin, setIsLogin] = useState(false);
+
+  useEffect(() => {
+    if (window.location.hash.includes('access_token')) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
+
+  const [isLogin, setIsLogin] = useState(true);
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [showLoginPassword, setShowLoginPassword] = useState(false);
@@ -90,11 +97,9 @@ export default function AnimatedAuth({
   const [signupPassword, setSignupPassword] = useState('');
   const [showSignupPassword, setShowSignupPassword] = useState(false);
   const [signupPhone, setSignupPhone] = useState('');
-  const [signupCity, setSignupCity] = useState('');
-  const [signupDepartment, setSignupDepartment] = useState('');
   const [signupRole, setSignupRole] = useState<Role>('citizen');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -202,6 +207,10 @@ export default function AnimatedAuth({
 
     if (profile.role !== loginRole) {
       setError('Wrong credentials');
+      //timeout for 3 sec
+      setTimeout(() => {
+        setError(null);
+      }, 1000);
       await supabase.auth.signOut();
       setLoading(false);
       return;
@@ -212,8 +221,8 @@ export default function AnimatedAuth({
   };
 
   const handleSignup = async () => {
-    if (!signupEmail || !signupPassword || !signupCity) {
-      setError('Email, password and city are required.');
+    if (!signupEmail || !signupPassword) {
+      setError('Email and password are required.');
       return;
     }
 
@@ -242,9 +251,7 @@ export default function AnimatedAuth({
           email: userEmail,
           full_name: signupName || null,
           phone: signupPhone || null,
-          department: signupDepartment || null,
           role: signupRole,
-          city: signupCity,
         },
         { onConflict: 'id' }
       );
@@ -259,6 +266,24 @@ export default function AnimatedAuth({
     setLoading(false);
     setMessage('Account created. Please login.');
     setIsLogin(true);
+  };
+
+  const handleGoogleAuth = async () => {
+    setError(null);
+    setMessage('');
+    setLoading(true);
+
+    const { error: googleError } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/citizen`,
+      },
+    });
+
+    if (googleError) {
+      setError(googleError.message);
+      setLoading(false);
+    }
   };
 
   return (
@@ -343,6 +368,14 @@ export default function AnimatedAuth({
           >
             {loading ? 'Please wait...' : loginTitle}
           </button>
+          <button
+            type="button"
+            onClick={handleGoogleAuth}
+            disabled={loading}
+            className="w-full mt-3 py-3 rounded-full text-white text-sm font-semibold border border-white/30 bg-transparent transition-colors hover:bg-white/10"
+          >
+            {loading ? 'Please wait...' : 'Login via Google'}
+          </button>
           <p className="text-xs text-gray-400 mt-4 text-center">
             Don't have an account?{' '}
             <button onClick={() => setIsLogin(false)} style={{ color: activeThemeColor }} className="hover:underline">
@@ -396,30 +429,6 @@ export default function AnimatedAuth({
             </div>
             <div className="relative border-b border-gray-600 pb-2">
               <input 
-                type="text" 
-                placeholder="City (required)"
-                value={signupCity}
-                onChange={(e) => setSignupCity(e.target.value)}
-                className="w-full bg-transparent outline-none text-white text-xs placeholder-[var(--auth-placeholder)]"
-              />
-              <span className="absolute right-0 text-gray-400">
-                <User size={16} />
-              </span>
-            </div>
-            <div className="relative border-b border-gray-600 pb-2">
-              <input 
-                type="text" 
-                placeholder="Department"
-                value={signupDepartment}
-                onChange={(e) => setSignupDepartment(e.target.value)}
-                className="w-full bg-transparent outline-none text-white text-xs placeholder-[var(--auth-placeholder)]"
-              />
-              <span className="absolute right-0 text-gray-400">
-                <User size={16} />
-              </span>
-            </div>
-            <div className="relative border-b border-gray-600 pb-2">
-              <input 
                 type={showSignupPassword ? 'text' : 'password'}
                 placeholder="Password" 
                 value={signupPassword}
@@ -459,6 +468,14 @@ export default function AnimatedAuth({
             style={{ backgroundColor: activeThemeColor }}
           >
             {loading ? 'Please wait...' : signupTitle}
+          </button>
+          <button
+            type="button"
+            onClick={handleGoogleAuth}
+            disabled={loading}
+            className="w-full mt-3 py-2.5 rounded-full text-white text-sm font-semibold border border-white/30 bg-transparent transition-colors hover:bg-white/10"
+          >
+            {loading ? 'Please wait...' : 'Signup via Google'}
           </button>
           <p className="text-[11px] text-gray-400 mt-3 text-center">
             Already have an account?{' '}

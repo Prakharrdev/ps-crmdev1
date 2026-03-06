@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Playfair_Display } from "next/font/google";
+import AuthHashCleanup from "@/components/AuthHashCleanup";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import "./globals.css";
 
@@ -20,8 +21,22 @@ const playfair = Playfair_Display({
 });
 
 export const metadata: Metadata = {
-  title: "Leafline",
-  description: "Leafline – your nature-inspired CRM",
+  title: "JanSamadhan",
+  description:
+    "JanSamadhan is a public grievance platform to report civic issues, track complaint status, and connect citizens with the right local authorities.",
+  openGraph: {
+    title: "JanSamadhan",
+    description:
+      "Report civic issues, track complaint progress, and get connected to the correct department with JanSamadhan.",
+    siteName: "JanSamadhan",
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: "JanSamadhan",
+    description:
+      "A civic issue reporting and complaint-tracking platform for citizens and authorities.",
+  },
 };
 
 export default function RootLayout({
@@ -32,7 +47,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} ${playfair.variable} antialiased`}>
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <AuthHashCleanup />
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );

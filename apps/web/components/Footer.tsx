@@ -77,7 +77,7 @@ export default function Footer() {
             <div className={`border-t ${isDark ? 'border-white/10' : 'border-black/10'}`}>
                 <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-5 flex flex-col sm:flex-row items-center justify-between gap-3">
                     <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                        © {new Date().getFullYear()} Leafline · PS-CRM. All rights reserved.
+                        © {new Date().getFullYear()} JanSamadhan · PS-CRM. All rights reserved.
                     </p>
                     <div className="flex items-center gap-1">
                         <span className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Made with</span>
