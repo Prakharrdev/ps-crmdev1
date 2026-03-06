@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import gsap from 'gsap';
 import { useGSAP } from '@gsap/react';
 import { User, Lock, Mail } from 'lucide-react';
@@ -80,6 +80,13 @@ export default function AnimatedAuth({
   rightPanelImage = '/Authsideimage.jpeg',
 }: AnimatedAuthProps) {
   const { theme } = useTheme();
+
+  useEffect(() => {
+    if (window.location.hash.includes('access_token')) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
+
   const [isLogin, setIsLogin] = useState(true);
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');

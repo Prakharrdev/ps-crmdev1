@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Playfair_Display } from "next/font/google";
+import AuthHashCleanup from "@/components/AuthHashCleanup";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import "./globals.css";
 
@@ -32,7 +33,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} ${playfair.variable} antialiased`}>
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <AuthHashCleanup />
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );
