@@ -48,7 +48,8 @@ export interface SidebarBottomNavigationItem {
   id: string;
   name: string;
   icon: React.ReactNode;
-  href: string;
+  href?: string;
+  onClick?: () => void;
 }
 
 export const SIDEBAR_LIGHT_COLORS: SidebarThemeColors = {
@@ -265,19 +266,40 @@ const Sidebar: React.FC<SidebarConfig> = ({
             </span>
           </button>
 
-          {bottomNavigation.map((item) => (
-            <Link 
-              key={item.id}
-              href={item.href} 
-              className={`menu-item flex items-center ${isCollapsed ? "justify-center px-2 gap-0" : "justify-start px-4 gap-4"} py-3 ml-2 rounded-xl font-medium transition-all duration-300 ${colors.textMuted} ${colors.textHover} ${colors.bgHover}`}
-              title={isCollapsed ? item.name : undefined}
-            >
-              <div className="shrink-0">{item.icon}</div>
-              <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isCollapsed ? "max-w-0 opacity-0" : "max-w-[200px] opacity-100"}`}>
-                {item.name}
-              </span>
-            </Link>
-          ))}
+          {bottomNavigation.map((item) => {
+            const classes = `menu-item flex items-center ${isCollapsed ? "justify-center px-2 gap-0" : "justify-start px-4 gap-4"} py-3 ml-2 rounded-xl font-medium transition-all duration-300 ${colors.textMuted} ${colors.textHover} ${colors.bgHover}`;
+
+            if (item.onClick) {
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={item.onClick}
+                  className={`${classes} w-full text-left`}
+                  title={isCollapsed ? item.name : undefined}
+                >
+                  <div className="shrink-0">{item.icon}</div>
+                  <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isCollapsed ? "max-w-0 opacity-0" : "max-w-[200px] opacity-100"}`}>
+                    {item.name}
+                  </span>
+                </button>
+              );
+            }
+
+            return (
+              <Link
+                key={item.id}
+                href={item.href ?? "#"}
+                className={classes}
+                title={isCollapsed ? item.name : undefined}
+              >
+                <div className="shrink-0">{item.icon}</div>
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isCollapsed ? "max-w-0 opacity-0" : "max-w-[200px] opacity-100"}`}>
+                  {item.name}
+                </span>
+              </Link>
+            );
+          })}
         </div>
       </aside>
     </>
