@@ -185,25 +185,81 @@ function CitizenTicketsPageContent() {
 
     const fetchTickets = async () => {
       if (!isActive) return;
-      setLoading(true);
-      setError(null);
 
-      const { data, error: ticketError } = await supabase
-        .from("complaints")
-        .select("id, ticket_id, title, address_text, assigned_department, status, created_at, upvote_count")
-        .eq("citizen_id", citizenId)
-        .order("created_at", { ascending: false });
+      const localCacheKey = `citizen_tickets_${citizenId}`;
+      const cachedS = typeof window !== "undefined" ? localStorage.getItem(localCacheKey) : null;
+      let localData: TicketListRow[] = [];
 
-      if (!isActive) return;
-
-      if (ticketError) {
-        setError("Failed to load tickets.");
-        setLoading(false);
-        return;
+      // 1. Instant loading from LocalStorage
+      if (cachedS) {
+        try {
+          localData = JSON.parse(cachedS);
+          setTickets(localData);
+          setLoading(false); // Immediately stop loading to show local data
+        } catch (e) {
+          console.error("Local storage parse error", e);
+        }
+      } else {
+        setLoading(true);
       }
 
-      setTickets((data ?? []) as TicketListRow[]);
-      setLoading(false);
+      setError(null);
+
+      // 2. Background sync with FastAPI
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (!token) throw new Error("No auth session");
+
+        // Use the latest ticket's created_at as the 'since' threshold for delta sync
+        const lastSyncTime = localData.length > 0 ? localData[0].created_at : null;
+        
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+        const url = new URL(`${apiUrl}/citizen/tickets`);
+        if (lastSyncTime) {
+          url.searchParams.set("since", lastSyncTime);
+        }
+
+        const res = await fetch(url.toString(), {
+          headers: {
+            "Authorization": `Bearer ${token}`,
+          },
+        });
+
+        if (!res.ok) throw new Error(`API error: ${res.status}`);
+        const { source, tickets: incoming } = await res.json();
+
+        if (!isActive) return;
+
+        setTickets((prev) => {
+          let updated: TicketListRow[];
+          if (source === "delta") {
+            // Merge delta updates (newest first)
+            const map = new Map(prev.map(t => [t.id, t]));
+            incoming.forEach((t: TicketListRow) => map.set(t.id, t));
+            updated = Array.from(map.values()).sort((a, b) => 
+              new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+            );
+          } else {
+            // Full refresh from server/cache
+            updated = incoming;
+          }
+
+          // Persist the updated list back to device storage
+          if (typeof window !== "undefined") {
+            localStorage.setItem(localCacheKey, JSON.stringify(updated));
+          }
+          return updated;
+        });
+      } catch (err) {
+        console.error("Fetch sync error:", err);
+        // We only show a hard error if we don't even have local data
+        if (!localData.length) {
+          setError("Failed to sync tickets with server.");
+        }
+      } finally {
+        if (isActive) setLoading(false);
+      }
     };
 
     const toTicketRow = (row: ComplaintRow): TicketListRow => ({

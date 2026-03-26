@@ -41,6 +41,7 @@ from shared import (
     route_authority,
     _find_recent_duplicate,
     build_complaint_record,
+    redis_client,
 )
 
 
@@ -548,6 +549,13 @@ async def confirm(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database insert failed: {str(e)}")
 
+    # Clear Redis Cache for this user
+    if redis_client:
+        try:
+            redis_client.delete(f"user:tickets:{citizen_id}")
+        except Exception as e:
+            print(f"Redis cache invalidation failed: {e}")
+
     if not response.data:
         raise HTTPException(status_code=500, detail="Database insert returned no data.")
 
@@ -575,6 +583,61 @@ async def confirm(
         timestamp=timestamp,
         image_metadata=img_metadata,
     )
+
+
+# =========================================================
+# 8b. CITIZEN TICKETS (with Redis Caching & Delta support)
+# =========================================================
+
+@app.get("/citizen/tickets")
+async def get_citizen_tickets(
+    since: Optional[str] = None,
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Fetch citizen tickets with Redis caching.
+    Supports a 'since' parameter (ISO timestamp) to return only new/updated records.
+    """
+    citizen_id = get_citizen_id_from_token(authorization)
+    cache_key = f"user:tickets:{citizen_id}"
+
+    # 1. Try to fetch from Redis if no delta is requested
+    if not since and redis_client:
+        try:
+            cached_data = redis_client.get(cache_key)
+            if cached_data:
+                return {
+                    "source": "cache",
+                    "tickets": json.loads(cached_data)
+                }
+        except Exception as e:
+            print(f"Redis read error: {e}")
+
+    # 2. Fallback to Supabase
+    query = supabase.table("complaints").select(
+        "id, ticket_id, title, address_text, assigned_department, status, created_at, upvote_count"
+    ).eq("citizen_id", citizen_id).order("created_at", desc=True)
+
+    if since:
+        query = query.gt("created_at", since)
+
+    try:
+        response = query.execute()
+        tickets = response.data or []
+        
+        # 3. Cache the FULL list in Redis for 1 hour (only if not a delta query)
+        if not since and redis_client:
+            try:
+                redis_client.setex(cache_key, 3600, json.dumps(tickets))
+            except Exception as e:
+                print(f"Redis write error: {e}")
+
+        return {
+            "source": "database" if not since else "delta",
+            "tickets": tickets
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database query failed: {str(e)}")
 
 
 # =========================================================

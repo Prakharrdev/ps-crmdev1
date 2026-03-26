@@ -197,7 +197,7 @@ const Sidebar: React.FC<SidebarConfig> = ({
       {/* Mobile Overlay */}
       {isOpen && (
         <div
-          className="fixed inset-0 bg-gray-900/50 dark:bg-black/60 z-[3000] lg:hidden transition-opacity"
+          className="fixed inset-0 bg-gray-900/50 dark:bg-black/60 z-[9998] lg:hidden transition-opacity"
           onClick={onClose}
         />
       )}
@@ -206,8 +206,8 @@ const Sidebar: React.FC<SidebarConfig> = ({
       <aside
         ref={sidebarRef}
         className={`
-          fixed lg:relative top-0 left-0 z-[3001] flex flex-col overflow-x-visible font-sans transition-all duration-300 ease-in-out
-          ${disableInternalScroll ? "h-dvh overflow-y-hidden py-4" : "min-h-screen py-8"}
+          fixed lg:relative top-0 left-0 z-[9999] flex flex-col font-sans transition-all duration-300 ease-in-out
+          ${disableInternalScroll ? "h-full py-4" : "min-h-screen py-8"}
           ${colors.background} ${colors.border} lg:border-r lg:relative lg:translate-x-0
           ${isOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full"}
           ${isCollapsed ? "w-20" : "w-64"}
@@ -224,7 +224,7 @@ const Sidebar: React.FC<SidebarConfig> = ({
         </button>
 
         {/* make top part scrollable so bottom nav stays visible */}
-        <div className={`flex min-h-0 flex-col flex-1 ${disableInternalScroll ? "overflow-y-hidden" : "overflow-y-auto"}`}>
+        <div className={`flex min-h-0 flex-col flex-1 overflow-x-hidden ${disableInternalScroll ? "overflow-y-hidden" : "overflow-y-auto"}`}>
           {/* Logo & Mobile Close Button */}
           <div className={`flex items-center ${isCollapsed ? "justify-center px-2" : "justify-between px-8"} ${disableInternalScroll ? "mb-6" : "mb-10"} menu-item transition-all duration-300`}>
             <div className={`flex items-center ${isCollapsed ? "justify-center gap-0" : "gap-3"} transition-all duration-300`}>

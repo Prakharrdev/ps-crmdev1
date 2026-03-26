@@ -20,6 +20,7 @@ from math import radians, sin, cos, sqrt, atan2
 from supabase import create_client, Client
 from google import genai
 from dotenv import load_dotenv
+import redis
 
 
 # =========================================================
@@ -44,6 +45,17 @@ if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY environment variable not set.")
 if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
     raise ValueError("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set.")
+
+# Redis Initialization
+REDIS_URL = os.getenv("REDIS_URL")
+redis_client: Optional[redis.Redis] = None
+if REDIS_URL:
+    try:
+        redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+        # Optional: Test connection
+        # redis_client.ping()
+    except Exception as e:
+        print(f"WARNING: Redis connection failed: {e}")
 
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
