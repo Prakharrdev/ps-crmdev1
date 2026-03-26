@@ -160,7 +160,7 @@ export default function AuthorityNotificationBell() {
     setReadSet(loadReadSet());
     setNotifs(deduped);
     setLoading(false);
-  }, []);
+  }, [department]);
 
   useEffect(() => {
     buildFeedRef.current = buildFeed;

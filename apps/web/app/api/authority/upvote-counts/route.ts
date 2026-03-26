@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
 
   const department = profile?.department ?? "";
 
-  let visibilityQuery = serviceClient
+  const visibilityQuery = serviceClient
     .from("complaints")
     .select("id")
     .in("id", complaintIds)
