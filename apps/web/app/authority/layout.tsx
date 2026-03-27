@@ -30,7 +30,7 @@ function usePageMeta(pathname: string) {
 
 export default function AuthorityLayout({ children }: { children: React.ReactNode }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
-  const [isCollapsed, setIsCollapsed] = useState(false)
+  const [isCollapsed, setIsCollapsed] = useState(true)
   const [profileOpen, setProfileOpen] = useState(false)
   const [userName, setUserName] = useState("")
   const profileRef = useRef<HTMLDivElement>(null)

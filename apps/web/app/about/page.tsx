@@ -76,7 +76,7 @@ export default function AboutPage() {
             <div className={`max-w-md text-lg md:text-xl font-medium ${isDark ? "text-[#d3c2af]" : "text-[#4a3c31]"}`}>
               We are the passionate minds behind JanSamadhan. A dynamic group of developers, designers, and visionaries committed to transforming public service through technology and spotless design.
               <div className="mt-8">
-                <a href="https://github.com/Medhansh-741/ps-crm" target="_blank" rel="noopener noreferrer" className={`inline-block px-6 py-3 rounded-full text-sm font-semibold transition-transform hover:scale-105 ${isDark ? "bg-[#e9ddce] text-[#2a221c]" : "bg-[#1c1612] text-[#ddd1c0]"}`}>
+                <a href="https://github.com/Prakharrdev/ps-crmdev1" target="_blank" rel="noopener noreferrer" className={`inline-block px-6 py-3 rounded-full text-sm font-semibold transition-transform hover:scale-105 ${isDark ? "bg-[#e9ddce] text-[#2a221c]" : "bg-[#1c1612] text-[#ddd1c0]"}`}>
                   View Repository
                 </a>
               </div>
@@ -197,7 +197,7 @@ export default function AboutPage() {
           </div>
 
           <div className="shrink-0 mt-8 md:mt-0 self-end md:self-auto">
-            <a href="https://github.com/Medhansh-741/ps-crm" target="_blank" rel="noopener noreferrer" className={`inline-flex items-center gap-4 px-8 py-5 rounded-full text-lg font-semibold transition-transform hover:scale-105 ${isDark ? "bg-[#e9ddce] text-[#2a221c]" : "bg-[#1c1612] text-[#ddd1c0]"}`}>
+            <a href="https://github.com/Prakharrdev/ps-crmdev1" target="_blank" rel="noopener noreferrer" className={`inline-flex items-center gap-4 px-8 py-5 rounded-full text-lg font-semibold transition-transform hover:scale-105 ${isDark ? "bg-[#e9ddce] text-[#2a221c]" : "bg-[#1c1612] text-[#ddd1c0]"}`}>
               View the Project
               <span className="text-xl">→</span>
             </a>
@@ -214,7 +214,7 @@ export default function AboutPage() {
         tagline="Designing delightful digital experiences."
         socialLinks={[
           { platform: "twitter", href: "https://twitter.com" },
-          { platform: "github", href: "https://github.com/Medhansh-741/ps-crm" },
+          { platform: "github", href: "https://github.com/Prakharrdev/ps-crmdev1" },
           { platform: "linkedin", href: "https://linkedin.com" },
         ]}
         showNewsletter={true}

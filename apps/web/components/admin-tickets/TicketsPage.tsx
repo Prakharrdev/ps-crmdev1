@@ -62,9 +62,12 @@ type CategoryOption = {
   name: string
 }
 
-type AdminComplaintsResponse = {
+type AdminComplaintsPayload = {
+  source?: string
   items: ComplaintRow[]
   profiles: ProfileRelation[]
+  workers: WorkerRow[]
+  categories: { id?: number; name: string; department?: string }[]
   totalCount: number
   error?: string
 }
@@ -117,6 +120,68 @@ const authorityExamples = [
   "NHAI",
 ]
 
+const CACHE_KEY = "admin_complaints_cache"
+
+/** Transforms raw API payload into UI state (tickets, workers, filter options) */
+function transformPayload(payload: AdminComplaintsPayload) {
+  const complaintRows = payload.items ?? []
+  const profilesData = payload.profiles ?? []
+
+  // Build profile map for O(1) lookups
+  const profileMap: Record<string, ProfileRelation> = {}
+  for (const profile of profilesData) {
+    profileMap[profile.id] = profile
+  }
+
+  const tickets = complaintRows.map((row) => normalizeTicket(row, profileMap))
+
+  // Normalize workers
+  const workerRows = payload.workers ?? []
+  const workers: WorkerOption[] = workerRows.map((entry) => {
+    const workerProfile = firstRelation(entry.worker)
+    return {
+      id: entry.worker_id,
+      name: workerProfile?.full_name ?? "Unnamed worker",
+      department: entry.department ?? workerProfile?.department ?? null,
+      availability: entry.availability,
+    }
+  })
+
+  // Build filter options from categories
+  const categoryNames = new Set<string>(categoryExamples)
+  const authorities = new Set<string>(authorityExamples)
+
+  const safeCategories: CategoryOption[] = (payload.categories ?? []).map((entry) => ({
+    id: entry.id ?? 0,
+    name: entry.name,
+  }))
+
+  for (const item of safeCategories) {
+    if (item.name) categoryNames.add(item.name)
+  }
+
+  // Also pull departments from complaints for authority filter
+  for (const row of complaintRows) {
+    if (row.assigned_department) authorities.add(row.assigned_department)
+  }
+
+  const categoryOptions: Option[] = [
+    { label: "All", value: "all" },
+    ...Array.from(categoryNames)
+      .sort((a, b) => a.localeCompare(b))
+      .map((name) => ({ label: name, value: name })),
+  ]
+
+  const authorityOptions: Option[] = [
+    { label: "All", value: "all" },
+    ...Array.from(authorities)
+      .sort((a, b) => a.localeCompare(b))
+      .map((name) => ({ label: name, value: name })),
+  ]
+
+  return { tickets, workers, categories: safeCategories, categoryOptions, authorityOptions, totalCount: payload.totalCount ?? 0 }
+}
+
 export default function TicketsPage() {
   const [search, setSearch] = useState("")
   const [filters, setFilters] = useState<TicketFiltersState>(initialFilters)
@@ -142,68 +207,22 @@ export default function TicketsPage() {
     ...authorityExamples.map((name) => ({ label: name, value: name })),
   ])
 
-  const loadFilterOptions = useCallback(async () => {
-    const [{ data: categoriesData }, { data: departmentsData }] = await Promise.all([
-      supabase.from("categories").select("id, name").eq("is_active", true).order("name", { ascending: true }),
-      supabase.from("complaints").select("assigned_department").not("assigned_department", "is", null).limit(500),
-    ])
-
-    const safeCategories: CategoryOption[] = (categoriesData ?? []).map((entry) => ({ id: entry.id, name: entry.name }))
-    setCategories(safeCategories)
-
-    const categoryNames = new Set<string>(categoryExamples)
-    const authorities = new Set<string>(authorityExamples)
-
-    for (const item of safeCategories) {
-      if (item.name) categoryNames.add(item.name)
-    }
-
-    for (const item of departmentsData ?? []) {
-      if (item.assigned_department) authorities.add(item.assigned_department)
-    }
-
-    setCategoryOptions([
-      { label: "All", value: "all" },
-      ...Array.from(categoryNames)
-        .sort((a, b) => a.localeCompare(b))
-        .map((name) => ({ label: name, value: name })),
-    ])
-
-    setAuthorityOptions([
-      { label: "All", value: "all" },
-      ...Array.from(authorities)
-        .sort((a, b) => a.localeCompare(b))
-        .map((name) => ({ label: name, value: name })),
-    ])
-  }, [])
-
-  const loadWorkers = useCallback(async () => {
-    const { data, error: workersError } = await supabase
-      .from("worker_profiles")
-      .select("worker_id, department, availability, worker:profiles!worker_profiles_worker_id_fkey(id, full_name, department)")
-      .order("joined_at", { ascending: false })
-
-    if (workersError) {
-      return
-    }
-
-    const normalized = (data ?? []).map((entry) => {
-      const row = entry as unknown as WorkerRow
-      const workerProfile = firstRelation(row.worker)
-      return {
-        id: row.worker_id,
-        name: workerProfile?.full_name ?? "Unnamed worker",
-        department: row.department ?? workerProfile?.department ?? null,
-        availability: row.availability,
-      }
-    })
-
-    setWorkers(normalized)
-  }, [])
-
+  // ── Consolidated fetch from FastAPI ──
   const fetchTickets = useCallback(async () => {
     setLoading(true)
     setError(null)
+
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession()
+
+    if (sessionError || !session?.access_token) {
+      setError("You must be logged in as admin")
+      setTickets([])
+      setLoading(false)
+      return
+    }
 
     const query = new URLSearchParams({
       page: String(page),
@@ -215,43 +234,42 @@ export default function TicketsPage() {
       category: filters.category,
     })
 
-    const response = await fetch(`/api/admin/complaints?${query.toString()}`, {
-      method: "GET",
-      cache: "no-store",
-    })
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+      const response = await fetch(`${apiUrl}/api/admin/complaints?${query.toString()}`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
 
-    const payload = (await response.json().catch(() => null)) as AdminComplaintsResponse | null
+      const payload = (await response.json().catch(() => null)) as AdminComplaintsPayload | null
 
-    if (!response.ok || !payload) {
-      setTickets([])
-      setTotalCount(0)
-      setError(payload?.error || "Failed to fetch tickets")
-      setLoading(false)
-      return
-    }
-
-    const complaintRows = payload.items ?? []
-    const profileIds = Array.from(
-      new Set(
-        complaintRows
-          .flatMap((row) => [row.assigned_worker_id, row.assigned_officer_id])
-          .filter((value): value is string => Boolean(value)),
-      ),
-    )
-
-    const profileMap: Record<string, ProfileRelation> = {}
-
-    if (profileIds.length > 0 && payload.profiles?.length) {
-      for (const profile of payload.profiles) {
-        profileMap[profile.id] = profile
+      if (!response.ok || !payload) {
+        setTickets([])
+        setTotalCount(0)
+        setError(payload?.error || "Failed to fetch tickets")
+        setLoading(false)
+        return
       }
+
+      const result = transformPayload(payload)
+      setTickets(result.tickets)
+      setTotalCount(result.totalCount)
+      setWorkers(result.workers)
+      setCategories(result.categories)
+      setCategoryOptions(result.categoryOptions)
+      setAuthorityOptions(result.authorityOptions)
+
+      // Persist to localStorage for instant load next time
+      try {
+        localStorage.setItem(CACHE_KEY, JSON.stringify(payload))
+      } catch {}
+    } catch (err) {
+      console.error("Complaints fetch error:", err)
+      setError("Failed to load complaints data")
+    } finally {
+      setLoading(false)
     }
-
-    const nextTickets = complaintRows.map((row) => normalizeTicket(row, profileMap))
-
-    setTickets(nextTickets)
-    setTotalCount(payload.totalCount ?? 0)
-    setLoading(false)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters, page, search])
 
   const handleView = useCallback((ticket: TicketRecord) => {
@@ -351,15 +369,24 @@ export default function TicketsPage() {
     setActionLoading(false)
   }, [assignWorkerId, fetchTickets, selectedTicket, workers])
 
+  // ── Instant Load from localStorage, then fresh fetch ──
   useEffect(() => {
-    void loadFilterOptions()
-  }, [loadFilterOptions])
+    // 1. Instant Load: render cached data immediately
+    try {
+      const cached = localStorage.getItem(CACHE_KEY)
+      if (cached) {
+        const result = transformPayload(JSON.parse(cached))
+        setTickets(result.tickets)
+        setTotalCount(result.totalCount)
+        setWorkers(result.workers)
+        setCategories(result.categories)
+        setCategoryOptions(result.categoryOptions)
+        setAuthorityOptions(result.authorityOptions)
+        setLoading(false)
+      }
+    } catch {}
 
-  useEffect(() => {
-    void loadWorkers()
-  }, [loadWorkers])
-
-  useEffect(() => {
+    // 2. Then fetch fresh data from FastAPI
     void fetchTickets()
   }, [fetchTickets])
 

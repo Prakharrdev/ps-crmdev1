@@ -159,7 +159,7 @@ const Sidebar: React.FC<SidebarConfig> = ({
   bottomNavigation,
   isOpen,
   onClose,
-  isCollapsed = false,
+  isCollapsed = true,
   onToggleCollapse,
   onLogout,
   disableInternalScroll = false,

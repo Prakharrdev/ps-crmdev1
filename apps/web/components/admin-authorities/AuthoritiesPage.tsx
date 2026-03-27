@@ -77,45 +77,13 @@ export default function AuthoritiesPage() {
   const [newAuthorityDepartment, setNewAuthorityDepartment] = useState("")
   const [newAuthorityPassword, setNewAuthorityPassword] = useState("")
 
-  const fetchAuthorities = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-
-    const {
-      data: { session },
-      error: sessionError,
-    } = await supabase.auth.getSession()
-
-    if (sessionError || !session?.access_token) {
-      setError("You must be logged in as admin")
-      setAuthorities([])
-      setLoading(false)
-      return
-    }
-
-    const response = await fetch("/api/admin/authorities", {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${session.access_token}`,
-      },
-      cache: "no-store",
-    })
-
-    const payload = (await response.json().catch(() => null)) as {
-      error?: string
-      profiles?: AuthorityProfileRow[]
-      complaints?: ComplaintAssignmentRow[]
-      workers?: WorkerProfileRow[]
-      categories?: CategoryRow[]
-    } | null
-
-    if (!response.ok || !payload) {
-      setError(payload?.error || "Unable to load authorities")
-      setAuthorities([])
-      setLoading(false)
-      return
-    }
-
+  // Shared transform: raw API payload → AuthorityRecord[] + department options
+  const transformPayload = useCallback((payload: {
+    profiles?: AuthorityProfileRow[]
+    complaints?: ComplaintAssignmentRow[]
+    workers?: WorkerProfileRow[]
+    categories?: CategoryRow[]
+  }) => {
     const profileRows = payload.profiles ?? []
     const complaintRows = payload.complaints ?? []
     const workerRows = payload.workers ?? []
@@ -193,14 +161,79 @@ export default function AuthoritiesPage() {
         return a.fullName.localeCompare(b.fullName)
       })
 
-    setAuthorities(nextAuthorities)
-    setDepartmentOptions(Array.from(departmentsSet).sort((a, b) => a.localeCompare(b)))
-    setLoading(false)
+    return {
+      authorities: nextAuthorities,
+      departments: Array.from(departmentsSet).sort((a, b) => a.localeCompare(b)),
+    }
+  }, [])
+
+  const fetchAuthorities = useCallback(async () => {
+    setError(null)
+
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession()
+
+    if (sessionError || !session?.access_token) {
+      setError("You must be logged in as admin")
+      setAuthorities([])
+      setLoading(false)
+      return
+    }
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+      const response = await fetch(`${apiUrl}/api/admin/authorities`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string
+        source?: string
+        profiles?: AuthorityProfileRow[]
+        complaints?: ComplaintAssignmentRow[]
+        workers?: WorkerProfileRow[]
+        categories?: CategoryRow[]
+      } | null
+
+      if (!response.ok || !payload) {
+        setError(payload?.error || "Unable to load authorities")
+        setLoading(false)
+        return
+      }
+
+      const result = transformPayload(payload)
+      setAuthorities(result.authorities)
+      setDepartmentOptions(result.departments)
+
+      // Persist raw payload to localStorage for instant load next time
+      try { localStorage.setItem("admin_authorities_payload", JSON.stringify(payload)) } catch {}
+    } catch (err) {
+      console.error("Authorities fetch error:", err)
+      setError("Failed to load authorities data")
+    } finally {
+      setLoading(false)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
+    // 1. Instant Load from localStorage
+    try {
+      const cached = localStorage.getItem("admin_authorities_payload")
+      if (cached) {
+        const result = transformPayload(JSON.parse(cached))
+        setAuthorities(result.authorities)
+        setDepartmentOptions(result.departments)
+        setLoading(false)
+      }
+    } catch {}
+
+    // 2. Then fetch fresh data
     void fetchAuthorities()
-  }, [fetchAuthorities])
+  }, [fetchAuthorities, transformPayload])
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 1000)

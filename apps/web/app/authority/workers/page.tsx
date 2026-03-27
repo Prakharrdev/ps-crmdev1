@@ -1,7 +1,7 @@
 // apps/web/app/authority/workers/page.tsx
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { supabase } from "@/src/lib/supabase"
 import { CheckCircle2, Circle, XCircle } from "lucide-react"
 
@@ -18,10 +18,58 @@ type Worker = {
   joined_at:         string | null
 }
 
+type WorkerPayload = {
+  source?: string
+  department: string
+  workers: {
+    worker_id: string
+    availability: string
+    department: string
+    city?: string
+    total_resolved?: number
+    current_complaint_id?: string | null
+    joined_at?: string | null
+    profiles: { full_name: string; email: string } | { full_name: string; email: string }[] | null
+  }[]
+  activeCounts: Record<string, number>
+}
+
 const AVAIL: Record<Availability, { label: string; pill: string; icon: React.ReactNode }> = {
   available: { label:"Available", pill:"bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200", icon:<CheckCircle2 size={11} className="text-emerald-500"/> },
   busy:      { label:"Busy",      pill:"bg-amber-50 text-amber-700 ring-1 ring-amber-200",      icon:<Circle      size={11} className="text-amber-400"/>   },
   inactive:  { label:"Inactive",  pill:"bg-gray-100 text-gray-500",                             icon:<XCircle     size={11} className="text-gray-400"/>    },
+}
+
+const CACHE_KEY = "authority_workers_cache"
+
+function transformPayload(payload: WorkerPayload) {
+  const department = payload.department ?? ""
+  const activeCounts = payload.activeCounts ?? {}
+
+  const workers: Worker[] = (payload.workers ?? []).map((w) => {
+    const prof = Array.isArray(w.profiles) ? w.profiles[0] : w.profiles
+    return {
+      worker_id:    w.worker_id,
+      availability: (w.availability ?? "inactive") as Availability,
+      department:   w.department ?? department,
+      city:         w.city ?? "",
+      profiles:     prof ?? null,
+      total_resolved: w.total_resolved ?? 0,
+      active_complaints: activeCounts[w.worker_id] ?? 0,
+      joined_at:    w.joined_at ?? null,
+    }
+  })
+
+  return { workers, department }
+}
+
+function getInitialWorkersCache(): { workers: Worker[]; department: string } {
+  if (typeof window === "undefined") return { workers: [], department: "" }
+  try {
+    const cached = localStorage.getItem(CACHE_KEY)
+    if (cached) return transformPayload(JSON.parse(cached))
+  } catch {}
+  return { workers: [], department: "" }
 }
 
 export default function WorkersPage() {
@@ -32,62 +80,69 @@ export default function WorkersPage() {
   const [availFilter, setAvailFilter] = useState<"all"|Availability>("all")
   const [dept,        setDept]        = useState("")
 
-  async function fetchWorkers() {
-    setLoading(true)
-    const { data: auth } = await supabase.auth.getUser()
-    const uid = auth?.user?.id
-    if (!uid) { setError("Not logged in"); setLoading(false); return }
+  const applyPayload = useCallback((payload: WorkerPayload) => {
+    const result = transformPayload(payload)
+    setWorkers(result.workers)
+    setDept(result.department)
+  }, [])
 
-    const { data: profile } = await supabase
-      .from("profiles").select("department").eq("id", uid).maybeSingle()
-    const department = profile?.department ?? ""
-    setDept(department)
-
-    let query = supabase
-      .from("worker_profiles")
-      .select("worker_id,availability,department,city,total_resolved,current_complaint_id,joined_at,profiles(full_name,email)")
-
-    if (department) query = query.eq("department", department)
-
-    const { data: wRows, error: wErr } = await query
-
-    if (wErr) { setError(wErr.message); setLoading(false); return }
-    if (!wRows?.length) { setWorkers([]); setLoading(false); return }
-
-    // Count currently active (non-resolved) assigned complaints per worker
-    const ids = wRows.map((w: any) => w.worker_id)
-    const { data: activeRows } = await supabase
-      .from("complaints")
-      .select("assigned_worker_id")
-      .in("assigned_worker_id", ids)
-      .not("status", "in", "(resolved,rejected)")
-
-    const activeCounts: Record<string, number> = {}
-    ids.forEach(id => { activeCounts[id] = 0 })
-    ;(activeRows ?? []).forEach((r: any) => {
-      if (activeCounts[r.assigned_worker_id] !== undefined) activeCounts[r.assigned_worker_id]++
-    })
-
-    setWorkers(
-      wRows.map((w: any) => {
-        const prof = Array.isArray(w.profiles) ? w.profiles[0] : w.profiles
-        return {
-          worker_id:    w.worker_id,
-          availability: (w.availability ?? "inactive") as Availability,
-          department:   w.department ?? department,
-          city:         w.city ?? "",
-          profiles:     prof ?? null,
-          total_resolved: w.total_resolved ?? 0,
-          active_complaints: activeCounts[w.worker_id] ?? 0,
-          joined_at:    w.joined_at ?? null,
-        }
-      })
-    )
+  const fetchWorkers = useCallback(async () => {
     setError(null)
-    setLoading(false)
-  }
 
-  useEffect(() => { void fetchWorkers() }, [])
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession()
+
+    if (sessionError || !session?.access_token) {
+      setError("Not logged in")
+      setLoading(false)
+      return
+    }
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+      const response = await fetch(`${apiUrl}/api/authority/workers`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+
+      const payload = (await response.json().catch(() => null)) as WorkerPayload | null
+
+      if (!response.ok || !payload) {
+        setError("Failed to load workers")
+        setLoading(false)
+        return
+      }
+
+      applyPayload(payload)
+
+      // Persist to localStorage for instant load next time
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify(payload)) } catch {}
+    } catch (err) {
+      console.error("Workers fetch error:", err)
+      setError("Failed to load workers data")
+    } finally {
+      setLoading(false)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // 1. Instant UI: Load from cache (client-side only to avoid hydration mismatch)
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem(CACHE_KEY)
+      if (cached) {
+        applyPayload(JSON.parse(cached))
+        setLoading(false)
+      }
+    } catch {}
+  }, [applyPayload])
+
+  // 2. Fresh fetch
+  useEffect(() => {
+    void fetchWorkers()
+  }, [fetchWorkers])
 
   useEffect(() => {
     if (!dept) return
@@ -102,7 +157,7 @@ export default function WorkersPage() {
       }, () => void fetchWorkers())
       .subscribe()
     return () => { supabase.removeChannel(ch) }
-  }, [dept])
+  }, [dept, fetchWorkers])
 
   const filtered = workers.filter(w => {
     const q = search.toLowerCase()
@@ -143,28 +198,39 @@ export default function WorkersPage() {
         </div>
       )}
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-2">
-        <input
-          type="text" value={search} onChange={e => setSearch(e.target.value)}
-          placeholder="Search by name or email…"
-          className="flex-1 min-w-52 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm shadow-sm
-                     placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#b4725a]
-                     dark:border-[#2a2a2a] dark:bg-[#1e1e1e] dark:text-gray-200"
-        />
-        <div className="flex overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-[#2a2a2a] dark:bg-[#1e1e1e]">
-          {(["all","available","busy","inactive"] as const).map(f => (
-            <button key={f} onClick={() => setAvailFilter(f)}
-              className={`px-4 py-2 text-sm font-medium capitalize transition-colors
-                ${availFilter===f ? "bg-[#b4725a] text-white" : "text-gray-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-[#2a2a2a]"}`}>
-              {f}
-            </button>
-          ))}
+      {/* Filters & Status */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-1 min-w-[240px] gap-2">
+          <input
+            type="text" value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search by name or email…"
+            className="flex-1 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm shadow-sm
+                       placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#b4725a]
+                       dark:border-[#2a2a2a] dark:bg-[#1e1e1e] dark:text-gray-200"
+          />
+        </div>
+        
+        <div className="flex items-center gap-2">
+          {loading && (
+            <div className="flex items-center gap-2 rounded-full border border-gray-100 bg-white/80 px-2 py-1 text-[10px] font-medium text-gray-400 shadow-sm backdrop-blur-sm dark:border-[#2a2a2a] dark:bg-[#1a1a1a]/80">
+              <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
+              Syncing...
+            </div>
+          )}
+          <div className="flex overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm dark:border-[#2a2a2a] dark:bg-[#1e1e1e]">
+            {(["all","available","busy","inactive"] as const).map(f => (
+              <button key={f} onClick={() => setAvailFilter(f)}
+                className={`px-3 py-1.5 text-xs font-medium capitalize transition-colors
+                  ${availFilter===f ? "bg-[#b4725a] text-white" : "text-gray-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-[#2a2a2a]"}`}>
+                {f}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Grid */}
-      {loading ? (
+      {/* Grid Content */}
+      {loading && workers.length === 0 ? (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {[...Array(6)].map((_,i) => (
             <div key={i} className="animate-pulse rounded-2xl border border-gray-100 bg-white p-5 dark:border-[#2a2a2a] dark:bg-[#161616]">
@@ -179,11 +245,13 @@ export default function WorkersPage() {
             </div>
           ))}
         </div>
-      ) : error ? (
+      ) : error && workers.length === 0 ? (
         <div className="flex h-40 items-center justify-center rounded-2xl border border-dashed border-red-200 text-sm text-red-400">
           {error}
         </div>
-      ) : filtered.length === 0 ? (
+      ) : (
+        <div className="space-y-4">
+          {filtered.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-gray-200 p-8 text-center dark:border-[#2a2a2a]">
           {workers.length === 0 ? (
             <div>
@@ -254,6 +322,8 @@ export default function WorkersPage() {
               </div>
             )
           })}
+            </div>
+          )}
         </div>
       )}
     </div>

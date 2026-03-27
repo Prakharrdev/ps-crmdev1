@@ -12,6 +12,7 @@ import MapVisual from "@/components/Mapvisual";
 import PhoneMockup from "@/components/PhoneMockup";
 import { MegaFooter } from "@/components/MegaFooter";
 import { useTheme } from "@/components/ThemeProvider";
+import AnimatedLeaderboard from "@/components/Leaderboardanimation";
 
 if (typeof window !== 'undefined') {
   gsap.registerPlugin(ScrollTrigger, useGSAP);
@@ -107,13 +108,8 @@ export default function HomePage() {
           </div>
 
           {/* Dashboard image – wide landscape rectangle */}
-          <div ref={dashboardRef} className="relative z-20 mt-6 ml-auto w-full lg:mt-4 lg:w-[65%]">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/Dashboard-mockup.jpg"
-              alt="PS-CRM Command Center Dashboard"
-              className={`w-full max-h-[45vh] object-cover object-top rounded-2xl ${isDark ? "shadow-[8px_8px_0px_0px_rgba(91,66,56,0.4)]" : "shadow-[8px_8px_0px_0px_rgba(160,140,120,0.3)]"}`}
-            />
+          <div ref={dashboardRef} className="relative z-20 -mt-30 mx-auto w-full lg:w-[90%]">
+            <AnimatedLeaderboard />
           </div>
         </div>
       </section>

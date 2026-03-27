@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from "react";
-import { LayoutGrid, ClipboardList, MapPin, Menu, Ticket, Bell, UserCircle2, ChevronDown, LogOut } from "lucide-react";
+import { LayoutGrid, ClipboardList, MapPin, Menu, Ticket, Bell, UserCircle2, ChevronDown, LogOut, Gift, Coins, Shield } from "lucide-react";
 import Sidebar, { defaultSidebarConfig, SidebarNavigationItem } from "@/components/Sidebar";
 import { usePathname } from "next/navigation";
 import { supabase } from '@/src/lib/supabase';
@@ -30,7 +30,7 @@ function statusClasses(status: string): string {
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(true);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationRow[]>([]);
@@ -38,6 +38,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [notificationLoading, setNotificationLoading] = useState(true);
   const [citizenId, setCitizenId] = useState<string | null>(null);
   const [hasUnreadUpdates, setHasUnreadUpdates] = useState(false);
+  const [globalJsPoints, setGlobalJsPoints] = useState(3500);
   const notificationMenuRef = useRef<HTMLDivElement | null>(null);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const pathname = usePathname();
@@ -79,6 +80,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    const handleUpdate = (e: any) => setGlobalJsPoints(e.detail);
+    window.addEventListener('update-js-points', handleUpdate);
+    return () => window.removeEventListener('update-js-points', handleUpdate);
   }, []);
 
   useEffect(() => {
@@ -205,6 +212,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       href: "/citizen/nearby",
       isActive: pathname === "/citizen/nearby",
     },
+    {
+      id: "rewards",
+      name: "Rewards",
+      icon: <Gift size={20} strokeWidth={2} />,
+      href: "/citizen/rewards",
+      isActive: pathname === "/citizen/rewards",
+    },
   ];
 
   const sidebarConfig = {
@@ -264,16 +278,29 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               </button>
               <div className="flex-1 min-w-0">
                 <h1 className="text-lg md:text-xl lg:text-2xl font-bold text-gray-900 dark:text-gray-100 truncate">
-                  {pathname === '/citizen/tickets' ? 'Your Tickets' : pathname === '/citizen/nearby' ? 'Nearby Tickets' : pathname === '/citizen/report' ? 'Report Issue' : 'JanSamadhan AI Assistant'}
+                  {pathname === '/citizen/tickets' ? 'Your Tickets' : pathname === '/citizen/nearby' ? 'Nearby Tickets' : pathname === '/citizen/report' ? 'Report Issue' : pathname === '/citizen/rewards' ? 'Rewards' : 'JanSamadhan AI Assistant'}
                 </h1>
                 <p className="mt-0.5 text-xs sm:text-sm text-gray-600 dark:text-gray-300 line-clamp-1">
-                  {pathname === '/citizen/tickets' ? 'Track all complaints you have reported in one list.' : pathname === '/citizen/nearby' ? 'See complaints reported near your location.' : pathname === '/citizen/report' ? 'Report a civic issue to the relevant authorities.' : 'Report an issue quickly, then track what happened next.'}
+                  {pathname === '/citizen/tickets' ? 'Track all complaints you have reported in one list.' : pathname === '/citizen/nearby' ? 'See complaints reported near your location.' : pathname === '/citizen/report' ? 'Report a civic issue to the relevant authorities.' : pathname === '/citizen/rewards' ? 'View your earned rewards and points.' : 'Report an issue quickly, then track what happened next.'}
                 </p>
               </div>
             </div>
 
             {/* Right side - Notifications and Profile */}
             <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+              {/* Rewards Currencies */}
+              <div className="hidden lg:flex items-center gap-4 mr-2">
+                <div className="flex items-center bg-amber-50 dark:bg-[#C9A84C]/10 rounded-full pl-1 pr-4 py-1 border border-amber-200 dark:border-[#C9A84C]/30 shadow-sm">
+                  <div className="bg-amber-100 dark:bg-[#C9A84C] text-amber-700 dark:text-[#1A1C23] rounded-full p-1.5 mr-2">
+                    <Coins size={16} className="fill-current" />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[9px] text-amber-700 dark:text-[#C9A84C] font-semibold leading-none mb-0.5">JS POINTS</span>
+                    <span className="text-sm font-bold leading-none text-amber-900 dark:text-white">{globalJsPoints}</span>
+                  </div>
+                </div>
+              </div>
+
               {/* Notification Bell */}
               <div ref={notificationMenuRef} className="relative">
                 <button

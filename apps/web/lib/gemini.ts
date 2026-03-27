@@ -55,11 +55,11 @@ RULES:
  * Send the conversation history to Gemini and get a response.
  * Calls the Next.js API route to keep the API key server-side.
  */
-export async function sendToGemini(messages: ChatMessage[]): Promise<GeminiResponse> {
+export async function sendToGemini(messages: ChatMessage[], language?: string): Promise<GeminiResponse> {
   const res = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify({ messages, language }),
   });
 
   if (!res.ok) {

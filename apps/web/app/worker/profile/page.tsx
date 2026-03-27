@@ -237,7 +237,14 @@ function formatAxisTick(value: number): string {
   const rounded = Math.round(value * 10) / 10;
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
 }
+const WORKER_PROFILE_CACHE_KEY = "worker_profile_cache_v2";
 
+type ProfilePayload = {
+  profile: Pick<ProfileRow, "full_name" | "email" | "city">;
+  workerProfile: Pick<WorkerProfileRow, "department" | "joined_at" | "availability" | "total_resolved" | "current_complaint_id">;
+  complaints: ComplaintRow[];
+  ticketHistory: TicketHistoryRow[];
+};
 export default function WorkerProfilePage() {
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const [workerId, setWorkerId] = useState<string | null>(null);
@@ -253,61 +260,9 @@ export default function WorkerProfilePage() {
   const [trend6m, setTrend6m] = useState<TrendPoint[]>([]);
   const [chartWidth, setChartWidth] = useState(0);
 
-  const loadProfile = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-
-    const { data: authData, error: authError } = await supabase.auth.getUser();
-    const uid = authData.user?.id ?? null;
-    if (authError || !uid) {
-      setError("Unable to load worker profile.");
-      setLoading(false);
-      return;
-    }
-
-    setWorkerId(uid);
-
-    const [
-      { data: profileRow, error: profileError },
-      { data: workerProfileRow, error: workerProfileError },
-      { data: complaintsRows, error: complaintsError },
-      { data: historyRows, error: historyError },
-    ] = await Promise.all([
-      supabase.from("profiles").select("full_name, email, city").eq("id", uid).maybeSingle(),
-      supabase
-        .from("worker_profiles")
-        .select("department, joined_at, availability, total_resolved, current_complaint_id")
-        .eq("worker_id", uid)
-        .maybeSingle(),
-      supabase
-        .from("complaints")
-        .select("id, status, created_at, resolved_at, updated_at, sla_deadline, assigned_worker_id")
-        .eq("assigned_worker_id", uid),
-      supabase
-        .from("ticket_history")
-        .select("id, note, created_at")
-        .eq("changed_by", uid)
-        .order("created_at", { ascending: false })
-        .limit(200),
-    ]);
-
-    if (profileError || workerProfileError || complaintsError || historyError) {
-      setError("Failed to load profile metrics.");
-      setLoading(false);
-      return;
-    }
-
-    const safeProfile = profileRow as Pick<ProfileRow, "full_name" | "email" | "city"> | null;
-    const safeWorker = workerProfileRow as Pick<
-      WorkerProfileRow,
-      "department" | "joined_at" | "availability" | "total_resolved" | "current_complaint_id"
-    > | null;
-
-    if (!safeProfile || !safeWorker) {
-      setError("Worker profile is not configured yet.");
-      setLoading(false);
-      return;
-    }
+  const applyPayload = useCallback((payload: ProfilePayload) => {
+    const safeProfile = payload.profile;
+    const safeWorker = payload.workerProfile;
 
     setProfile({
       fullName: safeProfile.full_name ?? "Worker",
@@ -320,18 +275,68 @@ export default function WorkerProfilePage() {
       currentComplaintId: safeWorker.current_complaint_id ?? null,
     });
 
-    const typedComplaints = (complaintsRows ?? []) as ComplaintRow[];
-    const typedHistory = (historyRows ?? []) as TicketHistoryRow[];
+    const typedComplaints = (payload.complaints || []) as ComplaintRow[];
+    const typedHistory = (payload.ticketHistory || []) as TicketHistoryRow[];
     setMetrics(computeMetrics(typedComplaints, typedHistory));
     setTrend7(buildTrend(typedComplaints, 7));
     setTrend30(buildTrend(typedComplaints, 30));
     setTrend6m(buildMonthlyTrend(typedComplaints, 6));
-    setLoading(false);
   }, []);
+  const loadProfile = useCallback(async (isInitial = true) => {
+    if (isInitial) setLoading(true);
+    setError(null);
+
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+    const uid = authData.user?.id ?? null;
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (authError || !uid || !session?.access_token) {
+      setError("Unable to load worker profile session.");
+      if (isInitial) setLoading(false);
+      return;
+    }
+
+    setWorkerId(uid);
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const response = await fetch(`${apiUrl}/api/worker/profile`, {
+        headers: { "Authorization": `Bearer ${session.access_token}` },
+      });
+
+      if (!response.ok) throw new Error(`API error: ${response.status}`);
+      const payload = await response.json();
+
+      applyPayload(payload);
+
+      // Persist for instant load
+      try {
+        localStorage.setItem(WORKER_PROFILE_CACHE_KEY, JSON.stringify(payload));
+      } catch {}
+    } catch (err) {
+      console.error("Worker profile fetch error:", err);
+      // Only show error if we have no cached data to show at all
+      if (isInitial) setError("Failed to sync latest profile data.");
+    } finally {
+      setLoading(false);
+    }
+  }, [applyPayload]);
 
   useEffect(() => {
-    void loadProfile();
-  }, [loadProfile]);
+    // 1. Instant UI: show cached data immediately
+    let hasCache = false;
+    try {
+      const cached = localStorage.getItem(WORKER_PROFILE_CACHE_KEY);
+      if (cached) {
+        applyPayload(JSON.parse(cached));
+        setLoading(false);
+        hasCache = true;
+      }
+    } catch {}
+
+    // 2. Then fetch fresh data (pass isInitial=false if we have cache to avoid flash)
+    void loadProfile(!hasCache);
+  }, [loadProfile, applyPayload]);
 
   useEffect(() => {
     const node = chartContainerRef.current;
@@ -481,18 +486,26 @@ export default function WorkerProfilePage() {
       ) : null}
 
       <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-[#2a2a2a] dark:bg-[#1e1e1e] sm:p-5">
-        <div>
+        <div className="flex items-center justify-between">
           <div>
-            <h2 className="mt-1 text-lg font-semibold text-gray-900 dark:text-gray-100">
-              {loading ? "Loading..." : profile?.fullName ?? "Worker"}
-            </h2>
+            <div className="flex items-center gap-3">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                {profile?.fullName ?? "Worker"}
+              </h2>
+              {loading && (
+                <div className="flex items-center gap-1.5 rounded-full border border-gray-100 bg-white/80 px-2 py-0.5 text-[10px] font-medium text-gray-400 shadow-sm backdrop-blur-sm dark:border-[#2a2a2a] dark:bg-[#1a1a1a]/80">
+                  <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
+                  Syncing...
+                </div>
+              )}
+            </div>
             <p className="text-sm text-gray-600 dark:text-gray-300">
-              {loading ? "" : `${profile?.email ?? ""} | ${profile?.department ?? ""}`}
+              {profile ? `${profile.email} | ${profile.department}` : "Loading worker context..."}
             </p>
           </div>
         </div>
 
-        {!loading && profile ? (
+        {profile ? (
           <div className="mt-4 grid grid-cols-1 gap-3 text-sm text-gray-700 dark:text-gray-300 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-lg border border-gray-200 p-3 dark:border-[#2a2a2a]">
               <p className="text-xs text-gray-500 dark:text-gray-400">Joined</p>

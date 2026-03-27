@@ -111,11 +111,16 @@ export async function POST(req: NextRequest): Promise<NextResponse<GeminiRespons
   }
 
   const messages = body.messages as ChatMessage[];
+  const language = body.language as string | undefined;
 
   // Build Gemini API contents: system instruction + conversation history
+  const systemPrompt = language 
+    ? `${SYSTEM_PROMPT}\n\nCRITICAL INSTRUCTION: You MUST strictly reply in the language with the ISO code "${language}". Even if the user speaks in English, your conversational responses AND the 'reply' field in your JSON MUST be localized entirely in the language corresponding to "${language}".`
+    : SYSTEM_PROMPT;
+
   const contents: GeminiApiContent[] = [
-    { role: "user", parts: [{ text: SYSTEM_PROMPT }] },
-    { role: "model", parts: [{ text: "Understood. I am JanSamadhan AI, ready to help Delhi citizens report civic issues." }] },
+    { role: "user", parts: [{ text: systemPrompt }] },
+    { role: "model", parts: [{ text: "Understood. I am JanSamadhan AI, ready to help Delhi citizens report civic issues in the requested language." }] },
     ...messages.map((m) => ({
       role: m.role === "user" ? "user" as const : "model" as const,
       parts: [{ text: m.text }],

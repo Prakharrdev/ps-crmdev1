@@ -9,7 +9,6 @@ import {
   computeStats,
   dayLabel,
   getUrgentTickets,
-  isBreached,
   monthLabel,
   type AuthorityComplaintRow,
   type DashboardStats,
@@ -23,21 +22,136 @@ import AuthorityStatusBreakdown from "./_components/AuthorityStatusBreakdown"
 import AuthorityRecentTickets   from "./_components/AuthorityRecentTickets"
 import AuthorityUrgentTickets   from "./_components/AuthorityUrgentTickets"
 
-// sla_breached intentionally NOT fetched — stale in DB.
-// isBreached(sla_deadline, status) is used everywhere instead.
-const COMPLAINT_SELECT =
-  "id, ticket_id, title, status, effective_severity, sla_deadline, " +
-  "escalation_level, created_at, resolved_at, address_text, assigned_worker_id, " +
-  "upvote_count, categories(name)"
+const CACHE_KEY = "authority_dashboard_cache"
 
-// Trend rows: need status, created_at, resolved_at
-const TREND_SELECT = "status, created_at, resolved_at"
+type DashboardPayload = {
+  source?: string
+  department: string
+  complaints: AuthorityComplaintRow[]
+  trendRows: { status: string; created_at: string; resolved_at: string | null }[]
+  workers: {
+    worker_id: string
+    availability: string
+    department: string
+    profiles: { full_name: string } | { full_name: string }[] | null
+  }[]
+}
+
+/**
+ * Build all four trend granularities from raw complaint + trend data.
+ * Keeps locale-dependent bucketing (en-IN) on the frontend.
+ */
+function buildAllTrends(
+  complaints: AuthorityComplaintRow[],
+  trendRows: { status: string; created_at: string; resolved_at: string | null }[],
+) {
+  const now = new Date()
+  const dayCutoff = new Date(); dayCutoff.setHours(0, 0, 0, 0)
+  const weekCutoff = new Date(); weekCutoff.setDate(weekCutoff.getDate() - 6); weekCutoff.setHours(0, 0, 0, 0)
+  const last30Cutoff = new Date(); last30Cutoff.setDate(last30Cutoff.getDate() - 29); last30Cutoff.setHours(0, 0, 0, 0)
+
+  // Day trend (today, hour-by-hour)
+  const hourBuckets: Record<string, Omit<TrendPoint, "label">> = {}
+  for (let h = 0; h < 24; h++) {
+    const lbl = `${String(h).padStart(2, "0")}:00`
+    hourBuckets[lbl] = { submitted: 0, resolved: 0, in_progress: 0, assigned: 0 }
+  }
+  for (const c of complaints) {
+    const d = new Date(c.created_at)
+    if (d >= dayCutoff) {
+      const lbl = `${String(d.getHours()).padStart(2, "0")}:00`
+      if (hourBuckets[lbl]) {
+        hourBuckets[lbl].submitted++
+        if (c.status === "assigned")    hourBuckets[lbl].assigned++
+        if (c.status === "in_progress") hourBuckets[lbl].in_progress++
+        if (c.status === "resolved")    hourBuckets[lbl].resolved++
+      }
+    }
+  }
+  const dayPoints: TrendPoint[] = Object.entries(hourBuckets).map(([label, v]) => ({ label, ...v }))
+
+  // Week trend (last 7 days)
+  const dBuckets = buildDayBuckets(7)
+  for (const c of complaints) {
+    const d = new Date(c.created_at)
+    if (d >= weekCutoff) {
+      const dk = dayLabel(d)
+      if (dBuckets[dk]) {
+        dBuckets[dk].submitted++
+        if (c.status === "assigned")    dBuckets[dk].assigned++
+        if (c.status === "in_progress") dBuckets[dk].in_progress++
+        if (c.status === "resolved")    dBuckets[dk].resolved++
+      }
+    }
+  }
+  const weekPoints: TrendPoint[] = Object.entries(dBuckets).map(([label, v]) => ({ label, ...v }))
+
+  // Last 30 days trend
+  const last30Buckets: Record<string, Omit<TrendPoint, "label">> = {}
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i)
+    const lbl = d.toLocaleDateString("en-IN", { day: "numeric", month: "short" })
+    last30Buckets[lbl] = { submitted: 0, resolved: 0, in_progress: 0, assigned: 0 }
+  }
+  for (const c of complaints) {
+    const d = new Date(c.created_at)
+    if (d >= last30Cutoff) {
+      const lbl = d.toLocaleDateString("en-IN", { day: "numeric", month: "short" })
+      if (last30Buckets[lbl]) {
+        last30Buckets[lbl].submitted++
+        if (c.status === "assigned")    last30Buckets[lbl].assigned++
+        if (c.status === "in_progress") last30Buckets[lbl].in_progress++
+        if (c.status === "resolved")    last30Buckets[lbl].resolved++
+      }
+    }
+  }
+  const last30Points: TrendPoint[] = Object.entries(last30Buckets).map(([label, v]) => ({ label, ...v }))
+
+  // Month trend (6 months)
+  const mBuckets = buildSixMonthBuckets()
+  for (const r of trendRows) {
+    const mk = monthLabel(new Date(r.created_at))
+    if (mBuckets[mk]) {
+      mBuckets[mk].submitted++
+      if (r.status === "assigned")    mBuckets[mk].assigned++
+      if (r.status === "in_progress") mBuckets[mk].in_progress++
+      if (r.status === "resolved" && r.resolved_at) {
+        const rk = monthLabel(new Date(r.resolved_at))
+        if (mBuckets[rk]) mBuckets[rk].resolved++
+      }
+    }
+  }
+  const monthPoints: TrendPoint[] = Object.entries(mBuckets).map(([label, v]) => ({ label, ...v }))
+
+  return { day: dayPoints, week: weekPoints, last30: last30Points, month: monthPoints }
+}
+
+/** Transform raw API payload into UI state */
+function transformPayload(payload: DashboardPayload) {
+  const complaints = (payload.complaints ?? []) as AuthorityComplaintRow[]
+  const trendRows = payload.trendRows ?? []
+  const department = payload.department ?? ""
+
+  const mappedWorkers: WorkerOption[] = (payload.workers ?? []).map((w) => ({
+    id:           w.worker_id,
+    full_name:    (Array.isArray(w.profiles) ? w.profiles[0] : w.profiles)?.full_name ?? "Unknown",
+    availability: w.availability ?? "inactive",
+    department:   w.department ?? department,
+  }))
+
+  const allTrend = buildAllTrends(complaints, trendRows)
+  const stats = computeStats(complaints)
+
+  return { complaints, workers: mappedWorkers, stats, allTrend, department }
+}
+
+// Cache initialization moved to useEffect to avoid hydration mismatches
 
 export default function AuthorityDashboardPage() {
   const [complaints,  setComplaints]  = useState<AuthorityComplaintRow[]>([])
   const [workers,     setWorkers]     = useState<WorkerOption[]>([])
-  const [trendPoints, setTrendPoints] = useState<TrendPoint[]>([])   // active view data
-  const [allTrend,    setAllTrend]    = useState<{                   // all pre-built buckets
+  const [trendPoints, setTrendPoints] = useState<TrendPoint[]>([])
+  const [allTrend,    setAllTrend]    = useState<{
     day:   TrendPoint[]
     week:  TrendPoint[]
     last30: TrendPoint[]
@@ -50,163 +164,73 @@ export default function AuthorityDashboardPage() {
   const [loading,     setLoading]     = useState(true)
   const [error,       setError]       = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    const { data: auth } = await supabase.auth.getUser()
-    const uid = auth?.user?.id
-    if (!uid) { setError("Not authenticated."); setLoading(false); return }
-
-    const { data: profile } = await supabase
-      .from("profiles").select("department").eq("id", uid).maybeSingle()
-    const dept = profile?.department ?? ""
-    setDepartment(dept)
-
-    // Date cutoffs
-    const sixMonthCutoff = new Date()
-    sixMonthCutoff.setMonth(sixMonthCutoff.getMonth() - 5)
-    sixMonthCutoff.setDate(1); sixMonthCutoff.setHours(0, 0, 0, 0)
-
-    const weekCutoff = new Date()
-    weekCutoff.setDate(weekCutoff.getDate() - 6)
-    weekCutoff.setHours(0, 0, 0, 0)
-
-    const last30Cutoff = new Date()
-    last30Cutoff.setDate(last30Cutoff.getDate() - 29)
-    last30Cutoff.setHours(0, 0, 0, 0)
-
-    const dayCutoff = new Date()
-    dayCutoff.setHours(0, 0, 0, 0)
-
-    let allRows:   any[] = []
-    let trendRows: any[] = []
-
-    // Try by assigned officer first
-    const [r1, r2] = await Promise.all([
-      supabase.from("complaints").select(COMPLAINT_SELECT)
-        .eq("assigned_officer_id", uid).neq("status", "rejected"),
-      supabase.from("complaints").select(TREND_SELECT)
-        .eq("assigned_officer_id", uid).gte("created_at", sixMonthCutoff.toISOString()),
-    ])
-    allRows   = r1.data ?? []
-    trendRows = r2.data ?? []
-
-    // Fallback: fetch by department if officer has no direct assignments
-    if (allRows.length === 0 && dept) {
-      const [r3, r4] = await Promise.all([
-        supabase.from("complaints").select(COMPLAINT_SELECT)
-          .eq("assigned_department", dept).neq("status", "rejected"),
-        supabase.from("complaints").select(TREND_SELECT)
-          .eq("assigned_department", dept).gte("created_at", sixMonthCutoff.toISOString()),
-      ])
-      if (r3.error) { setError("Failed to load: " + r3.error.message); setLoading(false); return }
-      allRows   = r3.data ?? []
-      trendRows = r4.data ?? []
-    }
-
-    // Workers — only for this department, join profile name
-    const { data: wRows } = dept
-      ? await supabase.from("worker_profiles")
-          .select("worker_id, availability, department, profiles(full_name)")
-          .eq("department", dept)
-      : { data: [] }
-
-    const mappedComplaints = allRows as unknown as AuthorityComplaintRow[]
-
-    const mappedWorkers: WorkerOption[] = (wRows ?? []).map((w: any) => ({
-      id:           w.worker_id,
-      full_name:    (Array.isArray(w.profiles) ? w.profiles[0] : w.profiles)?.full_name ?? "Unknown",
-      availability: w.availability ?? "inactive",
-      department:   w.department ?? dept,
-    }))
-
-    // ── Day trend (today, hour-by-hour for last 24h buckets) ──────────────────
-    // We bucket by hour label for today, simplest: use "HH:00" style
-    const hourBuckets: Record<string, Omit<TrendPoint, "label">> = {}
-    for (let h = 0; h < 24; h++) {
-      const lbl = `${String(h).padStart(2, "0")}:00`
-      hourBuckets[lbl] = { submitted: 0, resolved: 0, in_progress: 0, assigned: 0 }
-    }
-    mappedComplaints.forEach(c => {
-      const d = new Date(c.created_at)
-      if (d >= dayCutoff) {
-        const lbl = `${String(d.getHours()).padStart(2, "0")}:00`
-        if (hourBuckets[lbl]) {
-          hourBuckets[lbl].submitted++
-          if (c.status === "assigned")    hourBuckets[lbl].assigned++
-          if (c.status === "in_progress") hourBuckets[lbl].in_progress++
-          if (c.status === "resolved")    hourBuckets[lbl].resolved++
-        }
-      }
-    })
-    const dayPoints: TrendPoint[] = Object.entries(hourBuckets).map(([label, v]) => ({ label, ...v }))
-
-    // ── Week trend (last 7 days) ───────────────────────────────────────────────
-    const dBuckets = buildDayBuckets(7)
-    mappedComplaints.forEach(c => {
-      const d = new Date(c.created_at)
-      if (d >= weekCutoff) {
-        const dk = dayLabel(d)
-        if (dBuckets[dk]) {
-          dBuckets[dk].submitted++
-          if (c.status === "assigned")    dBuckets[dk].assigned++
-          if (c.status === "in_progress") dBuckets[dk].in_progress++
-          if (c.status === "resolved")    dBuckets[dk].resolved++
-        }
-      }
-    })
-    const weekPoints: TrendPoint[] = Object.entries(dBuckets).map(([label, v]) => ({ label, ...v }))
-
-    // ── Last 30 days trend (day-wise) ─────────────────────────────────────────
-    const last30Buckets: Record<string, Omit<TrendPoint, "label">> = {}
-    for (let i = 29; i >= 0; i--) {
-      const d = new Date()
-      d.setDate(d.getDate() - i)
-      const lbl = d.toLocaleDateString("en-IN", { day: "numeric", month: "short" })
-      last30Buckets[lbl] = { submitted: 0, resolved: 0, in_progress: 0, assigned: 0 }
-    }
-
-    mappedComplaints.forEach(c => {
-      const d = new Date(c.created_at)
-      if (d >= last30Cutoff) {
-        const lbl = d.toLocaleDateString("en-IN", { day: "numeric", month: "short" })
-        if (last30Buckets[lbl]) {
-          last30Buckets[lbl].submitted++
-          if (c.status === "assigned")    last30Buckets[lbl].assigned++
-          if (c.status === "in_progress") last30Buckets[lbl].in_progress++
-          if (c.status === "resolved")    last30Buckets[lbl].resolved++
-        }
-      }
-    })
-
-    const last30Points: TrendPoint[] = Object.entries(last30Buckets).map(([label, v]) => ({ label, ...v }))
-
-    // ── Month trend (6 months) ────────────────────────────────────────────────
-    const mBuckets = buildSixMonthBuckets()
-    ;(trendRows ?? []).forEach((r: any) => {
-      const mk = monthLabel(new Date(r.created_at))
-      if (mBuckets[mk]) {
-        mBuckets[mk].submitted++
-        if (r.status === "assigned")    mBuckets[mk].assigned++
-        if (r.status === "in_progress") mBuckets[mk].in_progress++
-        if (r.status === "resolved" && r.resolved_at) {
-          const rk = monthLabel(new Date(r.resolved_at))
-          if (mBuckets[rk]) mBuckets[rk].resolved++
-        }
-      }
-    })
-    const monthPoints: TrendPoint[] = Object.entries(mBuckets).map(([label, v]) => ({ label, ...v }))
-
-    const built = { day: dayPoints, week: weekPoints, last30: last30Points, month: monthPoints }
-
-    setComplaints(mappedComplaints)
-    setWorkers(mappedWorkers)
-    setStats(computeStats(mappedComplaints))
-    setAllTrend(built)
-    setTrendPoints(weekPoints)   // default view = week
-    setError(null)
-    setLoading(false)
+  const applyPayload = useCallback((payload: DashboardPayload) => {
+    const result = transformPayload(payload)
+    setComplaints(result.complaints)
+    setWorkers(result.workers)
+    setStats(result.stats)
+    setAllTrend(result.allTrend)
+    setTrendPoints(result.allTrend.week)
+    setDepartment(result.department)
   }, [])
 
-  useEffect(() => { void load() }, [load])
+  const load = useCallback(async () => {
+    setError(null)
+
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession()
+
+    if (sessionError || !session?.access_token) {
+      setError("Not authenticated.")
+      setLoading(false)
+      return
+    }
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+      const response = await fetch(`${apiUrl}/api/authority/dashboard`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+
+      const payload = (await response.json().catch(() => null)) as DashboardPayload | null
+
+      if (!response.ok || !payload) {
+        setError("Failed to load dashboard data")
+        setLoading(false)
+        return
+      }
+
+      applyPayload(payload)
+
+      // Persist to localStorage for instant load next time
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify(payload)) } catch {}
+    } catch (err) {
+      console.error("Authority dashboard fetch error:", err)
+      setError("Failed to load dashboard data")
+    } finally {
+      setLoading(false)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // 1. Instant UI: Load from cache (client-side only to avoid hydration mismatch)
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem(CACHE_KEY)
+      if (cached) {
+        applyPayload(JSON.parse(cached))
+        setLoading(false)
+      }
+    } catch {}
+  }, [applyPayload])
+
+  // 2. Fresh fetch
+  useEffect(() => {
+    void load()
+  }, [load])
 
   useEffect(() => {
     if (!department) return

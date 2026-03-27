@@ -65,79 +65,54 @@ export default function AdminStatsOverview() {
   const [loading, setLoading] = useState(true)
   const [dateTime, setDateTime] = useState<string>("")
 
+  // Stable fetch function — no reactive dependencies, runs only when called
   const fetchStats = useCallback(async () => {
     setError(null)
 
-    const [
-      totalResult,
-      activeResult,
-      resolvedResult,
-      escalatedResult,
-      authoritiesResult,
-      resolvedTimeRows,
-    ] = await Promise.all([
-      supabase.from("complaints").select("id", { count: "exact", head: true }),
-      supabase
-        .from("complaints")
-        .select("id", { count: "exact", head: true })
-        .in("status", ["submitted", "under_review", "assigned", "in_progress"]),
-      supabase.from("complaints").select("id", { count: "exact", head: true }).eq("status", "resolved"),
-      supabase.from("complaints").select("id", { count: "exact", head: true }).eq("status", "escalated"),
-      supabase
-        .from("profiles")
-        .select("id", { count: "exact", head: true })
-        .eq("role", "authority")
-        .eq("is_blocked", false),
-      supabase.from("complaints").select("created_at, resolved_at").eq("status", "resolved"),
-    ])
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+      if (!token) throw new Error("No session")
 
-    const firstError =
-      totalResult.error ||
-      activeResult.error ||
-      resolvedResult.error ||
-      escalatedResult.error ||
-      authoritiesResult.error ||
-      resolvedTimeRows.error
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+      const res = await fetch(`${apiUrl}/api/admin/dashboard/stats`, {
+        headers: { "Authorization": `Bearer ${token}` },
+      })
 
-    if (firstError) {
-      setError(firstError.message || "Failed to fetch admin dashboard stats")
-      return
+      if (!res.ok) throw new Error(`API error: ${res.status}`)
+      const data = await res.json()
+
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { source, ...kpis } = data
+      setStats(kpis as DashboardStats)
+
+      // Persist to LocalStorage for instant load next time
+      try { localStorage.setItem("admin_dashboard_stats", JSON.stringify(kpis)) } catch {}
+    } catch (err) {
+      console.error("Fetch stats error:", err)
+      setError("Unable to sync latest statistics.")
+    } finally {
+      setLoading(false)
     }
-
-    const averageResolutionDays = calculateAverageResolutionDays(resolvedTimeRows.data ?? [])
-
-    setStats({
-      totalComplaints: totalResult.count ?? 0,
-      activeComplaints: activeResult.count ?? 0,
-      resolvedComplaints: resolvedResult.count ?? 0,
-      urgentEscalations: escalatedResult.count ?? 0,
-      avgResolutionDays: averageResolutionDays,
-      authoritiesActive: authoritiesResult.count ?? 0,
-    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
-    let mounted = true
-
-    async function load() {
-      if (!mounted) return
-      setLoading(true)
-      await fetchStats()
-      if (mounted) {
+    // 1. Instant UI: show cached stats immediately
+    try {
+      const cached = localStorage.getItem("admin_dashboard_stats")
+      if (cached) {
+        setStats(JSON.parse(cached))
         setLoading(false)
       }
-    }
+    } catch {}
 
-    void load()
+    // 2. Then fetch fresh data from the API (one single call)
+    void fetchStats()
 
-    const statsInterval = setInterval(() => {
-      void fetchStats()
-    }, 60000)
-
-    return () => {
-      mounted = false
-      clearInterval(statsInterval)
-    }
+    // 3. Refresh every 60 seconds
+    const interval = setInterval(() => void fetchStats(), 60_000)
+    return () => clearInterval(interval)
   }, [fetchStats])
 
   useEffect(() => {

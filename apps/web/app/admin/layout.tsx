@@ -12,6 +12,7 @@ import {
   Shield,
   UserCircle2,
   Users,
+  Cctv,
 } from "lucide-react";
 import Sidebar, { defaultSidebarConfig, SidebarNavigationItem } from "@/components/Sidebar";
 import { usePathname, useRouter } from "next/navigation";
@@ -20,7 +21,7 @@ import AdminNotificationBell from "@/app/admin/_components/AdminNotificationBell
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(true);
   const [profileOpen, setProfileOpen] = useState(false);
   const [userName, setUserName] = useState("");
   const profileRef = useRef<HTMLDivElement>(null);
@@ -56,6 +57,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     { id: "complaints", name: "Complaints", icon: <ClipboardList size={20} strokeWidth={2} />, href: "/admin/complaints", isActive: pathname === "/admin/complaints" },
     { id: "authorities", name: "Authorities", icon: <Shield size={20} strokeWidth={2} />, href: "/admin/authorities", isActive: pathname === "/admin/authorities" },
     { id: "workers", name: "Workers", icon: <Users size={20} strokeWidth={2} />, href: "/admin/workers", isActive: pathname === "/admin/workers" },
+    { id: "surveillance", name: "Surveillance", icon: <Cctv size={20} strokeWidth={2} />, href: "/admin/surveillance", isActive: pathname === "/admin/surveillance" },
     { id: "reports", name: "Reports", icon: <FileBarChart2 size={20} strokeWidth={2} />, href: "/admin/reports", isActive: pathname === "/admin/reports" },
   ];
 
@@ -96,6 +98,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     "/admin/workers": { title: "Workers", subtitle: "Manage field workers and assignments." },
     "/admin/categories": { title: "Categories", subtitle: "Configure complaint categories." },
     "/admin/reports": { title: "Reports", subtitle: "View analytics and generated reports." },
+    "/admin/surveillance": { title: "Surveillance", subtitle: "CCTV network monitoring and AI-powered detection." },
     "/admin/settings": { title: "Settings", subtitle: "System preferences and configuration." },
   };
   const currentPage = pageTitles[pathname] ?? { title: "Admin", subtitle: "" };

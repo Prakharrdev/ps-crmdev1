@@ -25,6 +25,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Read the language the user selected in the UI (sent via X-Language header).
+    const languageCode = req.headers.get("X-Language")?.trim();
+
+    if (!languageCode) {
+      return NextResponse.json(
+        { error: "X-Language header is required." },
+        { status: 400 },
+      );
+    }
+
     // Build the request to Sarvam STT API.
     // Sarvam rejects MIME types with codec parameters (e.g. "audio/webm;codecs=opus"),
     // so we strip to the base type ("audio/webm") before forwarding.
@@ -35,7 +45,7 @@ export async function POST(req: NextRequest) {
     const sarvamForm = new FormData();
     sarvamForm.append("file", cleanBlob, "recording.webm");
     sarvamForm.append("model", "saaras:v3");
-    sarvamForm.append("language_code", "unknown");   // auto-detect
+    sarvamForm.append("language_code", languageCode);
     sarvamForm.append("mode", "transcribe");          // keep original language
 
     const sarvamRes = await fetch(SARVAM_STT_URL, {
@@ -59,7 +69,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       transcript: result.transcript ?? "",
-      language_code: result.language_code ?? "unknown",
+      language_code: result.language_code,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "STT request failed";

@@ -76,6 +76,42 @@ function normaliseSev(v: string): string {
   return map[v.toLowerCase().trim()] ?? v
 }
 
+const TRACK_CACHE_KEY = "authority_track_cache"
+
+type TrackPayload = {
+  source?: string
+  department: string
+  complaints: Complaint[]
+  trendRows?: unknown[]
+  workers: {
+    worker_id: string
+    availability: string
+    department: string
+    profiles: { full_name: string } | { full_name: string }[] | null
+  }[]
+}
+
+function transformTrackPayload(payload: TrackPayload) {
+  const department = payload.department ?? ""
+  const rows = (payload.complaints ?? []) as Complaint[]
+  const workerRows: Worker[] = (payload.workers ?? []).map((w) => ({
+    id:           w.worker_id,
+    full_name:    (Array.isArray(w.profiles) ? w.profiles[0] : w.profiles)?.full_name ?? "Unknown",
+    availability: w.availability ?? "inactive",
+    department:   w.department ?? department,
+  }))
+  return { complaints: rows, workers: workerRows, department }
+}
+
+function getInitialTrackCache() {
+  if (typeof window === "undefined") return null
+  try {
+    const cached = localStorage.getItem(TRACK_CACHE_KEY)
+    if (cached) return transformTrackPayload(JSON.parse(cached))
+  } catch {}
+  return null
+}
+
 export default function TrackPage() {
   const [complaints,   setComplaints]   = useState<Complaint[]>([])
   const [workers,      setWorkers]      = useState<Worker[]>([])
@@ -133,54 +169,73 @@ export default function TrackPage() {
   }
 
   async function fetchData() {
-    const { data: auth } = await supabase.auth.getUser()
-    const uid = auth?.user?.id
-    if (!uid) { setError("Not logged in"); setLoading(false); return }
-
-    const { data: profile } = await supabase
-      .from("profiles").select("department").eq("id", uid).maybeSingle()
-    const department = profile?.department ?? ""
-
-    let rows: Complaint[] = []
-    const { data: d1 } = await supabase
-      .from("complaints").select(COMPLAINT_SELECT)
-      .eq("assigned_officer_id", uid).neq("status", "rejected")
-      .order("created_at", { ascending: false })
-    rows = (d1 ?? []) as unknown as Complaint[]
-
-    if (rows.length === 0 && department) {
-      const { data: d2, error: e2 } = await supabase
-        .from("complaints").select(COMPLAINT_SELECT)
-        .eq("assigned_department", department).neq("status", "rejected")
-        .order("created_at", { ascending: false })
-      if (e2) { setError(e2.message); setLoading(false); return }
-      rows = (d2 ?? []) as unknown as Complaint[]
-    }
-
-    rows = await applyLiveUpvoteCounts(rows)
-
-    let workerRows: Worker[] = []
-    if (department) {
-      const { data: wRows } = await supabase
-        .from("worker_profiles")
-        .select("worker_id,availability,department,profiles(full_name)")
-        .eq("department", department)
-      workerRows = (wRows ?? []).map((w: any) => ({
-        id:           w.worker_id,
-        full_name:    (Array.isArray(w.profiles) ? w.profiles[0] : w.profiles)?.full_name ?? "Unknown",
-        availability: w.availability ?? "inactive",
-        department:   w.department ?? department,
-      }))
-    }
-
-    setComplaints(rows)
-    setWorkers(workerRows)
-    setDept(department)
     setError(null)
-    setLoading(false)
+
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession()
+
+    if (sessionError || !session?.access_token) {
+      setError("Not logged in")
+      setLoading(false)
+      return
+    }
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+      const response = await fetch(`${apiUrl}/api/authority/dashboard`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+
+      const payload = (await response.json().catch(() => null)) as TrackPayload | null
+
+      if (!response.ok || !payload) {
+        setError("Failed to load complaints")
+        setLoading(false)
+        return
+      }
+
+      const result = transformTrackPayload(payload)
+
+      // Apply live upvote counts (separate enrichment step)
+      const enrichedComplaints = await applyLiveUpvoteCounts(result.complaints)
+
+      setComplaints(enrichedComplaints)
+      setWorkers(result.workers)
+      setDept(result.department)
+      setError(null)
+
+      // Persist to localStorage for instant load next time
+      try { localStorage.setItem(TRACK_CACHE_KEY, JSON.stringify(payload)) } catch {}
+    } catch (err) {
+      console.error("Track page fetch error:", err)
+      setError("Failed to load complaints data")
+    } finally {
+      setLoading(false)
+    }
   }
 
-  useEffect(() => { void fetchData() }, [])
+  // 1. Instant UI: Load from cache (client-side only to avoid hydration mismatch)
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem(TRACK_CACHE_KEY)
+      if (cached) {
+        const result = transformTrackPayload(JSON.parse(cached))
+        setComplaints(result.complaints)
+        setWorkers(result.workers)
+        setDept(result.department)
+        setLoading(false)
+      }
+    } catch {}
+  }, [])
+
+  // 2. Fresh fetch
+  useEffect(() => {
+    void fetchData()
+  }, [])
+
   useEffect(() => {
     if (!dept) return
     const ch = supabase.channel("track-realtime")
@@ -315,17 +370,35 @@ export default function TrackPage() {
 
       {/* ── TABLE ───────────────────────────────────────────────────────────── */}
       <div className="rounded-2xl bg-[#eef3f4] p-4 dark:bg-[#1a1a1a]">
-        {/* Table header */}
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-bold text-gray-900 dark:text-white">Complaints Overview</h2>
-            <p className="text-xs text-gray-500">
-              {loading ? "Loading…" : error ? error : `Showing ${filtered.length} of ${complaints.length}`}
-              {!loading && !hasWorkers && (
-                <span className="ml-2 text-amber-500">· No workers in this department</span>
-              )}
-            </p>
+        <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl font-bold text-gray-900 dark:text-white">Track Complaints</h1>
+            {loading && (
+              <div className="flex items-center gap-2 rounded-full border border-gray-100 bg-white/80 px-2 py-1 text-[10px] font-medium text-gray-400 shadow-sm backdrop-blur-sm dark:border-[#2a2a2a] dark:bg-[#1a1a1a]/80">
+                <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
+                Syncing...
+              </div>
+            )}
+            {error && (
+              <div className="rounded-full border border-red-100 bg-red-50 px-2 py-1 text-[10px] font-medium text-red-600 dark:border-red-900/40 dark:bg-red-900/20">
+                Sync error
+              </div>
+            )}
           </div>
+          <p className="text-xs text-gray-400">
+            {dept ? <span className="font-medium text-gray-600 dark:text-gray-300">{dept}</span> : null}
+            {dept && " · "}{complaints.length} tickets total
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-xs text-gray-500">
+            {loading ? "Loading…" : error ? error : `Showing ${filtered.length} of ${complaints.length}`}
+            {!loading && !hasWorkers && (
+              <span className="ml-2 text-amber-500">· No workers in this department</span>
+            )}
+          </p>
           <button onClick={exportCSV}
             className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors dark:border-[#2a2a2a] dark:bg-[#1e1e1e] dark:text-gray-300">
             Export CSV
@@ -413,7 +486,7 @@ export default function TrackPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
-                {loading ? (
+                {loading && complaints.length === 0 ? (
                   [...Array(6)].map((_, i) => (
                     <tr key={i} className="animate-pulse">
                       {[70,160,60,80,35,75,90,55].map((w,j) => (
@@ -423,7 +496,7 @@ export default function TrackPage() {
                   ))
                 ) : filtered.length === 0 ? (
                   <tr><td colSpan={8} className="p-8 text-center text-xs text-gray-400">
-                    {complaints.length === 0 ? "No complaints assigned to your department yet." : "No complaints match your filters."}
+                    {loading ? "Syncing tickets..." : (complaints.length === 0 ? "No complaints assigned to your department yet." : "No complaints match your filters.")}
                   </td></tr>
                 ) : filtered.map(c => {
                   const sev        = getSeverityConfig(c.effective_severity)
@@ -530,6 +603,7 @@ export default function TrackPage() {
             />
           </div>
         )}
+        </div>
       </div>
     </div>
   )

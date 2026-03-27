@@ -56,8 +56,8 @@ export default function Header({
   logoText = "JANSAMADHAN",
   navLinks = [
     { label: "HOME", href: "/" },
+    { label: "LEADERBOARD", href: "/leaderboard" },
     { label: "CONTACT", href: "/contact" },
-    { label: "BLOGS", href: "/blogs" },
     { label: "ABOUT", href: "/about" },
   ],
   themeColors = defaultTheme,

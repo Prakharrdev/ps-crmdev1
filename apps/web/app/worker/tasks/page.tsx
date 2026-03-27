@@ -51,10 +51,21 @@ function extractRelevantAddress(fullAddress: string | null | undefined): string 
   return lines.slice(0, 3).join(", ") || beforeGPS;
 }
 
+const WORKER_TASKS_CACHE_KEY = "worker_tasks_cache";
+
+function getInitialTasks(): ComplaintRow[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const cached = localStorage.getItem(WORKER_TASKS_CACHE_KEY);
+    if (cached) return JSON.parse(cached);
+  } catch {}
+  return [];
+}
+
 export default function WorkerTasksPage() {
-  const [tasks, setTasks] = useState<ComplaintRow[]>([]);
+  const [tasks,   setTasks]   = useState<ComplaintRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error,   setError]   = useState<string | null>(null);
 
   useEffect(() => {
     let isActive = true;
@@ -63,37 +74,68 @@ export default function WorkerTasksPage() {
       if (!isActive) return;
       setLoading(true);
 
-      const { data: authData } = await supabase.auth.getUser();
-      const currentWorkerId = authData.user?.id;
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
 
-      if (!currentWorkerId) {
-        setError("User not authenticated");
-        setLoading(false);
-        return;
-      }
+      const currentWorkerId = session?.user?.id;
 
-      if (!isActive) return;
-
-      const { data: complaintRows, error: complaintError } = await supabase
-        .from("complaints")
-        .select("*")
-        .eq("assigned_worker_id", currentWorkerId)
-        .in("status", ["assigned", "in_progress", "resolved"])
-        .order("created_at", { ascending: false });
-
-      if (complaintError) {
+      if (sessionError || !session?.access_token || !currentWorkerId) {
         if (isActive) {
-          setError("Failed to load tasks.");
+          setError("User not authenticated");
           setLoading(false);
         }
         return;
       }
 
-      if (isActive) {
-        setTasks((complaintRows || []).filter((task) => task.assigned_worker_id === currentWorkerId));
-        setLoading(false);
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+        const response = await fetch(`${apiUrl}/api/worker/dashboard`, {
+          method: "GET",
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+
+        const payload = await response.json().catch(() => null);
+
+        if (!response.ok || !payload) {
+          if (isActive) {
+            setError(payload?.detail || "Failed to load tasks.");
+            setLoading(false);
+          }
+          return;
+        }
+
+        if (isActive) {
+          const complaintRows = (payload.complaints || []) as ComplaintRow[];
+          const filtered = complaintRows.filter(
+            (task) => task.assigned_worker_id === currentWorkerId
+          );
+          setTasks(filtered);
+          setLoading(false);
+
+          // Persist for instant load
+          try {
+            localStorage.setItem(WORKER_TASKS_CACHE_KEY, JSON.stringify(filtered));
+          } catch {}
+        }
+      } catch (err) {
+        if (isActive) {
+          console.error("Worker tasks fetch error:", err);
+          setError("Failed to load tasks.");
+          setLoading(false);
+        }
       }
     }
+
+    // 1. Instant UI: Load from cache (client-side only to avoid hydration mismatch)
+    try {
+      const cached = localStorage.getItem(WORKER_TASKS_CACHE_KEY);
+      if (cached) {
+        setTasks(JSON.parse(cached));
+        setLoading(false);
+      }
+    } catch {}
 
     const upsertTask = (prev: ComplaintRow[], incoming: ComplaintRow, currentWorkerId: string): ComplaintRow[] => {
       // Only keep assigned, in_progress, or resolved tickets in this view
@@ -175,7 +217,7 @@ export default function WorkerTasksPage() {
     });
 
     // PERFORMANCE OPTIMIZATION: Removed 15s polling.
-    // Realtime sync viasupabase.channel handles updates efficiently.
+    // Realtime sync via supabase.channel handles updates efficiently.
 
     return () => {
       isActive = false;
@@ -199,20 +241,14 @@ export default function WorkerTasksPage() {
               <span>Reported Time</span>
             </div>
 
-            <div>
-              {loading && <div className="px-5 py-8 text-sm text-gray-500 dark:text-gray-400">Loading tasks...</div>}
-              {!loading && error && <div className="px-5 py-8 text-sm text-red-600 dark:text-red-400">{error}</div>}
-              {!loading && !error && tasks.length === 0 && (
-                <div className="px-5 py-8 text-sm text-gray-500 dark:text-gray-400">No tasks assigned yet.</div>
-              )}
-
-              {!loading && !error && tasks.length > 0 && (
-                <ul className="divide-y divide-gray-100 dark:divide-[#2a2a2a]">
-                  {tasks.map((task) => (
-                    <li
-                      key={task.id}
-                      className="grid grid-cols-[150px_2fr_2fr_1.5fr_1fr_1fr] gap-3 px-5 py-4 text-sm text-gray-700 hover:bg-gray-50 transition-colors dark:text-gray-300 dark:hover:bg-[#1e1e1e]"
-                    >
+            <div className="relative">
+              {/* Table Body */}
+              <ul className="divide-y divide-gray-100 dark:divide-[#2a2a2a]">
+                {tasks.map((task) => (
+                  <li
+                    key={task.id}
+                    className="grid grid-cols-[150px_2fr_2fr_1.5fr_1fr_1fr] gap-3 px-5 py-4 text-sm text-gray-700 hover:bg-gray-50 transition-colors dark:text-gray-300 dark:hover:bg-[#1e1e1e]"
+                  >
                       <span className="font-medium text-gray-900 font-mono text-xs sm:text-sm truncate dark:text-gray-200">
                         {task.ticket_id || "N/A"}
                       </span>
@@ -247,7 +283,29 @@ export default function WorkerTasksPage() {
                       </span>
                     </li>
                   ))}
-                </ul>
+              </ul>
+
+              {/* Status Indicators */}
+              <div className="absolute right-4 top-[-34px] z-20">
+                {loading && (
+                  <div className="flex items-center gap-2 rounded-full border border-gray-100 bg-white/80 px-2 py-1 text-[10px] font-medium text-gray-400 shadow-sm backdrop-blur-sm dark:border-[#2a2a2a] dark:bg-[#1a1a1a]/80">
+                    <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
+                    Syncing...
+                  </div>
+                )}
+                {!loading && error && (
+                  <div className="rounded-full border border-red-100 bg-red-50 px-2 py-1 text-[10px] font-medium text-red-600 dark:border-red-900/40 dark:bg-red-900/20">
+                    Sync error
+                  </div>
+                )}
+              </div>
+
+              {/* Empty State */}
+              {!loading && !error && tasks.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <p className="text-sm font-medium text-gray-500 dark:text-gray-400">No tasks assigned yet.</p>
+                  <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">Your current tasks will appear here.</p>
+                </div>
               )}
             </div>
           </div>

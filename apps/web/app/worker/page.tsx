@@ -49,77 +49,26 @@ type ProfileAccessRow = {
   role: string
 }
 
-export default function WorkerDashboardPage() {
-  const [workerId, setWorkerId] = useState<string | null>(null)
-  const [tasks, setTasks] = useState<DashboardTask[]>([])
-  const [activity, setActivity] = useState<ActivityItem[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
-  const [isCompletionModalOpen, setIsCompletionModalOpen] = useState(false)
-  const [completionNote, setCompletionNote] = useState("")
+const WORKER_DASHBOARD_CACHE_KEY = "worker_dashboard_cache"
 
-  const fetchDashboardData = useCallback(async () => {
-    setLoading(true)
-    setError(null)
+type WorkerDashboardPayload = {
+  source?: string
+  workerId: string
+  workerProfile: { last_location: unknown } | null
+  complaints: ComplaintWithCategory[]
+  activityHistory: {
+    id: string
+    complaint_id: string
+    old_status: string
+    new_status: string
+    note: string | null
+    created_at: string
+  }[]
+}
 
-    const { data: authData, error: authError } = await supabase.auth.getUser()
-    const currentWorkerId = authData.user?.id ?? null
-    const currentUserEmail = authData.user?.email ?? null
-
-    if (authError || !currentWorkerId || !currentUserEmail) {
-      setLoading(false)
-      setError("Unable to load worker context.")
-      return
-    }
-
-    const { data: profileRow, error: profileAccessError } = await supabase
-      .from("profiles")
-      .select("id, email, role")
-      .eq("id", currentWorkerId)
-      .eq("email", currentUserEmail)
-      .eq("role", "worker")
-      .maybeSingle()
-
-    if (profileAccessError || !profileRow) {
-      setLoading(false)
-      setError("Access denied. This dashboard is only available to users assigned as workers.")
-      return
-    }
-
-    const workerProfileAccess = profileRow as ProfileAccessRow
-    if (workerProfileAccess.email !== currentUserEmail || workerProfileAccess.role !== "worker") {
-      setLoading(false)
-      setError("Access denied. This dashboard is only available to users assigned as workers.")
-      return
-    }
-
-    setWorkerId(currentWorkerId)
-
-    const [{ data: workerProfile, error: profileError }, { data: complaintRows, error: complaintError }] = await Promise.all([
-      supabase
-        .from("worker_profiles")
-        .select("last_location")
-        .eq("worker_id", currentWorkerId)
-        .maybeSingle(),
-      supabase
-        .from("complaints")
-        .select(
-          "id, ticket_id, assigned_worker_id, description, address_text, severity, status, created_at, resolved_at, location, categories(name)",
-        )
-        .eq("assigned_worker_id", currentWorkerId)
-        .in("status", ["assigned", "in_progress", "resolved"]),
-    ])
-
-    if (profileError || complaintError) {
-      setError("Failed to load worker dashboard data.")
-      setLoading(false)
-      return
-    }
-
-    const workerLocation = parseLatLng(workerProfile?.last_location)
-    const normalizedTasks = (complaintRows ?? []).map((row) => {
-      const complaint = row as unknown as ComplaintWithCategory
+function transformPayload(payload: WorkerDashboardPayload) {
+    const workerLocation = parseLatLng(payload.workerProfile?.last_location)
+    const normalizedTasks = (payload.complaints ?? []).map((complaint) => {
       const complaintLocation = parseLatLng(complaint.location)
       const distanceKm =
         workerLocation && complaintLocation ? haversineKm(workerLocation, complaintLocation) : null
@@ -141,38 +90,112 @@ export default function WorkerDashboardPage() {
       } satisfies DashboardTask
     })
 
-    setTasks(normalizedTasks.filter((task) => task.assignedWorkerId === currentWorkerId))
-
-    const { data: ticketRows, error: ticketError } = await supabase
-      .from("ticket_history")
-      .select("id, complaint_id, old_status, new_status, note, created_at")
-      .eq("changed_by", currentWorkerId)
-      .order("created_at", { ascending: false })
-      .limit(5)
-
-    if (ticketError) {
-      setError("Activity feed failed to refresh.")
-    }
-
-    const activityItems = (ticketRows ?? []).map((row) => {
+    const activityItems = (payload.activityHistory ?? []).map((row) => {
       let text = `Updated Complaint #${row.complaint_id}`
       if (row.new_status === "in_progress") text = `Started work on Complaint #${row.complaint_id}`
       if (row.new_status === "resolved") text = `Completed Complaint #${row.complaint_id}`
       if (row.note && row.new_status !== "in_progress" && row.new_status !== "resolved") {
         text = `Updated progress on Complaint #${row.complaint_id}`
       }
-
-      return {
-        id: row.id,
-        text,
-        createdAt: row.created_at,
-      } satisfies ActivityItem
+      return { id: row.id, text, createdAt: row.created_at } satisfies ActivityItem
     })
 
-    setActivity(activityItems)
-    setLoading(false)
+    return {
+      workerId: payload.workerId,
+      tasks: normalizedTasks.filter((task) => task.assignedWorkerId === payload.workerId),
+      activity: activityItems,
+    }
+  }
+
+function getInitialDashboardCache(): { tasks: DashboardTask[]; activity: ActivityItem[]; workerId: string | null } {
+  if (typeof window === "undefined") return { tasks: [], activity: [], workerId: null }
+  try {
+    const cached = localStorage.getItem(WORKER_DASHBOARD_CACHE_KEY)
+    if (cached) {
+      const result = transformPayload(JSON.parse(cached))
+      return result
+    }
+  } catch {}
+  return { tasks: [], activity: [], workerId: null }
+}
+
+export default function WorkerDashboardPage() {
+  const [workerId, setWorkerId] = useState<string | null>(null)
+  const [tasks, setTasks] = useState<DashboardTask[]>([])
+  const [activity, setActivity] = useState<ActivityItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
+  const [isCompletionModalOpen, setIsCompletionModalOpen] = useState(false)
+  const [completionNote, setCompletionNote] = useState("")
+
+  const applyPayload = useCallback((payload: WorkerDashboardPayload) => {
+    const result = transformPayload(payload)
+    setWorkerId(result.workerId)
+    setTasks(result.tasks)
+    setActivity(result.activity)
   }, [])
 
+  // 1. Instant UI: Load from cache (client-side only to avoid hydration mismatch)
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem(WORKER_DASHBOARD_CACHE_KEY)
+      if (cached) {
+        const payload = JSON.parse(cached)
+        applyPayload(payload)
+        setLoading(false)
+      }
+    } catch {}
+  }, [applyPayload])
+
+  const fetchDashboardData = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession()
+
+    if (sessionError || !session?.access_token) {
+      setLoading(false)
+      setError("Unable to load worker context.")
+      return
+    }
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+      const response = await fetch(`${apiUrl}/api/worker/dashboard`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+
+      const payload = (await response.json().catch(() => null)) as WorkerDashboardPayload | null
+
+      if (!response.ok || !payload) {
+        const errorDetail = (payload as any)?.detail
+        setLoading(false)
+        setError(
+          typeof errorDetail === "string"
+            ? errorDetail
+            : "Failed to load worker dashboard data."
+        )
+        return
+      }
+
+      applyPayload(payload)
+
+      // Persist to localStorage for instant load
+      try { localStorage.setItem(WORKER_DASHBOARD_CACHE_KEY, JSON.stringify(payload)) } catch {}
+    } catch (err) {
+      console.error("Worker dashboard fetch error:", err)
+      setError("Failed to load worker dashboard data.")
+    } finally {
+      setLoading(false)
+    }
+  }, [applyPayload])
+
+  // localStorage already read in useState initializer — just fetch fresh data
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       void fetchDashboardData()
@@ -402,11 +425,23 @@ export default function WorkerDashboardPage() {
 
   return (
     <div className="flex min-h-full flex-col gap-3 overflow-visible lg:gap-4">
-      {error ? (
-        <div className="shrink-0 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-400">
-          {error}
+      <div className="flex items-center justify-between gap-4">
+        <h1 className="text-xl font-bold text-gray-900 dark:text-white sm:text-2xl">Worker Dashboard</h1>
+        
+        <div className="flex items-center gap-2">
+          {loading && (
+            <div className="flex items-center gap-2 rounded-full border border-gray-100 bg-white/80 px-2 py-1 text-[10px] font-medium text-gray-400 shadow-sm backdrop-blur-sm dark:border-[#2a2a2a] dark:bg-[#1a1a1a]/80">
+              <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
+              Syncing...
+            </div>
+          )}
+          {error && (
+            <div className="shrink-0 rounded-full border border-red-200 bg-red-50 px-3 py-1 text-[10px] font-medium text-red-700 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-400">
+              {error}
+            </div>
+          )}
         </div>
-      ) : null}
+      </div>
 
       <section className="shrink-0 grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
         {statsCards.map((card) => {

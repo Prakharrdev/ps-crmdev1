@@ -32,6 +32,7 @@ try:
 except IndexError:
     ROOT_DIR = Path(__file__).resolve().parent  # Docker: /app
 load_dotenv(ROOT_DIR / ".env", override=False)
+load_dotenv(ROOT_DIR / "apps" / "api" / ".env", override=False)
 load_dotenv(ROOT_DIR / "apps" / "web" / ".env.local", override=False)
 
 GEMINI_API_KEY    = os.getenv("GEMINI_API_KEY")
@@ -61,8 +62,9 @@ gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 REVERSE_GEOCODE_CACHE: Dict[str, Dict[str, str]] = {}
 ALLOWED_STATUSES = {"submitted", "verified", "assigned", "in_progress", "resolved", "closed"}
-DUPLICATE_LOOKBACK_HOURS = 24
-DUPLICATE_RADIUS_METERS = 50.0
+DUPLICATE_RADIUS_METERS = 20.0  # Synced with YOLO Reliability Engine
+CCTV_SYSTEM_EMAIL = "cctv.system@jansamadhan.gov.in"
+CCTV_SYSTEM_ID = "00000000-0000-0000-0000-000000000000" # Reserved for auto-tickets
 
 ISSUE_TYPE_AUTHORITY_KEYWORDS = [
     (["street light", "light", "electricity", "power", "wire", "transformer"], "DISCOM"),
@@ -247,43 +249,47 @@ def _parse_coords_from_location(location_value: Any) -> Optional[Dict[str, float
     return None
 
 
-def _find_recent_duplicate(
+def _find_active_spatial_duplicate(
     *,
     category_id: int,
     latitude: float,
     longitude: float,
-    lookback_hours: int = DUPLICATE_LOOKBACK_HOURS,
+    radius_meters: float = 20.0,
 ) -> Optional[Dict[str, Any]]:
-    since_iso = datetime.now(timezone.utc).timestamp() - lookback_hours * 3600
-    since = datetime.fromtimestamp(since_iso, tz=timezone.utc).isoformat()
-
+    """
+    Find existing active duplicates within a spatial radius using PostGIS.
+    A duplicate is defined as an ANY complaint at the same location that is NOT
+    resolved, closed, or rejected.
+    """
     try:
-        rows = (
-            supabase.table("complaints")
-            .select("id, ticket_id, title, status, created_at, location")
-            .eq("category_id", category_id)
-            .gte("created_at", since)
-            .limit(100)
-            .execute()
-        )
-    except Exception:
+        # PostGIS query: find records within X meters of point
+        # target_digipin helps as a fallback for exact tile match
+        target_digipin = _compute_digipin(latitude, longitude)
+
+        # We query for tickets that are NOT in a 'final' state
+        active_statuses = ["submitted", "verified", "assigned", "in_progress", "escalated"]
+
+        rpc_response = supabase.rpc(
+            "find_duplicate_complaints_v2",
+            {
+                "p_lat": latitude,
+                "p_lng": longitude,
+                "p_radius": radius_meters,
+                "p_digipin": target_digipin,
+                "p_category_id": category_id,
+                "p_active_statuses": active_statuses
+            }
+        ).execute()
+
+        if rpc_response.data and len(rpc_response.data) > 0:
+            return rpc_response.data[0]
+            
         return None
 
-    for row in rows.data or []:
-        coords = _parse_coords_from_location(row.get("location"))
-        if not coords:
-            continue
-        distance_m = _haversine_meters(latitude, longitude, coords["lat"], coords["lng"])
-        if distance_m <= DUPLICATE_RADIUS_METERS:
-            return {
-                "id": row.get("id"),
-                "ticket_id": row.get("ticket_id") or row.get("id"),
-                "title": row.get("title") or "Existing complaint",
-                "status": row.get("status") if row.get("status") in ALLOWED_STATUSES else "submitted",
-                "created_at": row.get("created_at") or "",
-                "distance_m": round(distance_m, 1),
-            }
-    return None
+    except Exception as e:
+        # Fallback to broad search if RPC fails (e.g. during migration)
+        print(f"PostGIS RPC failed, falling back: {str(e)}")
+        return None
 
 
 def reverse_geocode_from_coordinates(latitude: float, longitude: float) -> Dict[str, str]:

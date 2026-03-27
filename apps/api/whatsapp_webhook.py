@@ -38,7 +38,7 @@ from shared import (
     upload_image_to_supabase,
     reverse_geocode_from_coordinates,
     route_authority,
-    _find_recent_duplicate,
+    _find_active_spatial_duplicate,
     build_complaint_record,
 )
 
@@ -326,7 +326,7 @@ async def confirm_ticket(phone: str, session: dict):
             "city":                location.get("city") or "Delhi",
             "upvote_count":        0,
             "is_spam":             False,
-            "possible_duplicate":  False,
+            "possible_duplicate":  bool(_find_active_spatial_duplicate(category_id=child_id, latitude=lat, longitude=lng)),
             "sla_breached":        False,
             "escalation_level":    0,
             "upvote_boost":        0,
