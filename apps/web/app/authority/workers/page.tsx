@@ -3,7 +3,8 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { supabase } from "@/src/lib/supabase"
-import { CheckCircle2, Circle, XCircle } from "lucide-react"
+import { CheckCircle2, Circle, XCircle, Star } from "lucide-react"
+import Rating from "@/components/Rating"
 
 type Availability = "available" | "busy" | "inactive"
 
@@ -16,6 +17,8 @@ type Worker = {
   total_resolved:    number
   active_complaints: number
   joined_at:         string | null
+  average_rating:    number
+  total_reviews:     number
 }
 
 type WorkerPayload = {
@@ -27,6 +30,8 @@ type WorkerPayload = {
     department: string
     city?: string
     total_resolved?: number
+    average_rating?: number
+    total_reviews?: number
     current_complaint_id?: string | null
     joined_at?: string | null
     profiles: { full_name: string; email: string } | { full_name: string; email: string }[] | null
@@ -57,6 +62,8 @@ function transformPayload(payload: WorkerPayload) {
       total_resolved: w.total_resolved ?? 0,
       active_complaints: activeCounts[w.worker_id] ?? 0,
       joined_at:    w.joined_at ?? null,
+      average_rating: w.average_rating ?? 0,
+      total_reviews: w.total_reviews ?? 0,
     }
   })
 
@@ -306,6 +313,16 @@ export default function WorkersPage() {
                     <p className="text-lg font-bold text-emerald-600">{w.total_resolved}</p>
                     <p className="text-[10px] font-medium text-gray-400">Resolved</p>
                   </div>
+                </div>
+
+                {/* Rating Display */}
+                <div className="mt-4 flex flex-col items-center gap-1 border-t border-gray-100 pt-3 dark:border-[#2a2a2a]">
+                  <Rating initialRating={w.average_rating} readonly />
+                  <p className="text-[10px] text-gray-400">
+                    {w.average_rating > 0 
+                      ? `${w.average_rating.toFixed(1)} avg (${w.total_reviews} reviews)`
+                      : "No reviews yet"}
+                  </p>
                 </div>
 
                 {/* Availability note */}

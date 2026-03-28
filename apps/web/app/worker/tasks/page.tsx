@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/src/lib/supabase";
 import type { Database } from "@/src/types/database.types";
+import MaterialRequestModal from "@/components/worker/MaterialRequestModal";
+import { Package } from "lucide-react";
 
 type ComplaintRow = Database["public"]["Tables"]["complaints"]["Row"];
 
@@ -66,6 +68,8 @@ export default function WorkerTasksPage() {
   const [tasks,   setTasks]   = useState<ComplaintRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<{ id: string; ticket_id: string; title: string } | null>(null);
 
   useEffect(() => {
     let isActive = true;
@@ -231,14 +235,15 @@ export default function WorkerTasksPage() {
     <div className="w-full px-4 py-4 sm:px-6">
       <section className="rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-[#2a2a2a] dark:bg-[#161616]">
         <div className="overflow-x-auto">
-          <div className="min-w-[980px]">
-            <div className="sticky top-0 z-10 grid grid-cols-[150px_2fr_2fr_1.5fr_1fr_1fr] gap-3 border-b border-gray-200 bg-gray-50 px-5 py-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:border-[#2a2a2a] dark:bg-[#1e1e1e] dark:text-gray-400">
+          <div className="min-w-[1100px]">
+            <div className="sticky top-0 z-10 grid grid-cols-[150px_2fr_2fr_1.5fr_1fr_1fr_140px] gap-3 border-b border-gray-200 bg-gray-50 px-5 py-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:border-[#2a2a2a] dark:bg-[#1e1e1e] dark:text-gray-400">
               <span>Ticket ID</span>
               <span>Issue Title</span>
               <span>Locality / Address</span>
               <span>Severity</span>
               <span>Status</span>
               <span>Reported Time</span>
+              <span>Action</span>
             </div>
 
             <div className="relative">
@@ -247,7 +252,7 @@ export default function WorkerTasksPage() {
                 {tasks.map((task) => (
                   <li
                     key={task.id}
-                    className="grid grid-cols-[150px_2fr_2fr_1.5fr_1fr_1fr] gap-3 px-5 py-4 text-sm text-gray-700 hover:bg-gray-50 transition-colors dark:text-gray-300 dark:hover:bg-[#1e1e1e]"
+                    className="grid grid-cols-[150px_2fr_2fr_1.5fr_1fr_1fr_140px] gap-3 px-5 py-4 text-sm text-gray-700 hover:bg-gray-50 transition-colors dark:text-gray-300 dark:hover:bg-[#1e1e1e]"
                   >
                       <span className="font-medium text-gray-900 font-mono text-xs sm:text-sm truncate dark:text-gray-200">
                         {task.ticket_id || "N/A"}
@@ -281,6 +286,21 @@ export default function WorkerTasksPage() {
                       <span className="text-gray-500 text-xs sm:text-sm dark:text-gray-400">
                         {formatReportedTime(task.created_at)}
                       </span>
+
+                      <button
+                        onClick={() => {
+                          setSelectedTask({
+                            id: task.id,
+                            ticket_id: task.ticket_id || "N/A",
+                            title: task.title || "Untitled issue"
+                          });
+                          setIsModalOpen(true);
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/30 rounded-lg text-xs font-semibold transition-all w-fit h-fit"
+                      >
+                        <Package className="w-3.5 h-3.5" />
+                        Materials
+                      </button>
                     </li>
                   ))}
               </ul>
@@ -311,6 +331,16 @@ export default function WorkerTasksPage() {
           </div>
         </div>
       </section>
+
+      {selectedTask && (
+        <MaterialRequestModal
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+          ticketId={selectedTask.id}
+          ticketDisplayId={selectedTask.ticket_id}
+          ticketTitle={selectedTask.title}
+        />
+      )}
     </div>
   );
 }

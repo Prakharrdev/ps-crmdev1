@@ -713,7 +713,7 @@ JanSamadhan is designed from day one for national scale. The Delhi pilot covers 
 | **Phase 3** | Offline PWA — service worker caching for low-connectivity | 🔄 Planned |
 | **Phase 4** | WhatsApp integration — report via WhatsApp message → Seva processes automatically | 🔄 Planned |
 | **Phase 5** | CPGRAMS bridge — API integration for cross-jurisdiction escalation | 🔄 Planned |
-| **Phase 6** | Official DIGIPIN REST API (India Post v2, expected 2027) | 🔄 Planned |
+| **Phase 6** | Official DIGIPIN REST API (India Post v2, expected 2027) | 🔄 Planned | T1
 
 ---
 

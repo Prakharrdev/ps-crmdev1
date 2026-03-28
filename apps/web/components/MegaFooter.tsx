@@ -341,18 +341,18 @@ export function MegaFooter({
           </p>
           <div className="flex gap-6">
             <a
-              href="#"
+              href="/privacy"
               className="text-sm transition-colors mega-bottom-link"
               style={{ color: `var(--bottom-link-color, ${bottomLinkColor})` }}
             >
               Privacy Policy
             </a>
             <a
-              href="#"
+              href="/terms"
               className="text-sm transition-colors mega-bottom-link"
               style={{ color: `var(--bottom-link-color, ${bottomLinkColor})` }}
             >
-              Terms of Service
+              Terms and Conditions
             </a>
           </div>
         </div>

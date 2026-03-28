@@ -7,6 +7,7 @@ type TicketsTableProps = {
   onView: (ticket: TicketRecord) => void
   onAssign: (ticket: TicketRecord) => void
   onEscalate: (ticket: TicketRecord) => void
+  highlightTicketId?: string | null
 }
 
 const headers = [
@@ -41,6 +42,7 @@ export default function TicketsTable({
   onView,
   onAssign,
   onEscalate,
+  highlightTicketId,
 }: TicketsTableProps) {
   return (
     <div className="overflow-x-auto rounded-2xl border border-[#d4cdc2] bg-white shadow-sm dark:border-[#2a2a2a] dark:bg-[#1e1e1e] dark:shadow-none">
@@ -75,6 +77,7 @@ export default function TicketsTable({
                 onView={onView}
                 onAssign={onAssign}
                 onEscalate={onEscalate}
+                isHighlighted={ticket.id === highlightTicketId}
               />
             ))
           )}

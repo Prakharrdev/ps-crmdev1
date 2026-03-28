@@ -8,6 +8,7 @@ export function formatStatusLabel(status: ComplaintStatus): string {
   if (status === "resolved") return "Resolved"
   if (status === "escalated") return "Escalated"
   if (status === "rejected") return "Rejected"
+  if (status === "pending_closure") return "Pending Closure"
   return status
 }
 

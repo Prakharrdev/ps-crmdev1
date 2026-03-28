@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import {
   BarChart2, ChevronDown, ClipboardList,
-  LayoutGrid, LogOut, Menu, Users, UserCircle2,
+  LayoutGrid, LogOut, Menu, Users, UserCircle2, Package
 } from "lucide-react"
 import Sidebar, { defaultSidebarConfig } from "@/components/Sidebar"
 import { supabase } from "@/src/lib/supabase"
@@ -16,6 +16,7 @@ const PAGE_META: Record<string, { title: string; sub: string }> = {
   "/authority/track": { title: "Track Complaints", sub: "Monitor and manage complaints across the city through the live complaint map." },
   "/authority/workers": { title: "Workers", sub: "View and manage department field workers and their availability status." },
   "/authority/reports": { title: "Reports", sub: "Analyze complaint trends, resolution performance, and SLA compliance." },
+  "/authority/warehouse": { title: "Warehouse", sub: "Manage department inventory and approve material requests from workers." },
 }
 
 function usePageMeta(pathname: string) {
@@ -99,6 +100,7 @@ export default function AuthorityLayout({ children }: { children: React.ReactNod
       { id: "track", name: "Track Complaints", icon: <ClipboardList size={20} strokeWidth={2} />, href: "/authority/track", isActive: pathname.startsWith("/authority/track") },
       { id: "workers", name: "Workers", icon: <Users size={20} strokeWidth={2} />, href: "/authority/workers", isActive: pathname.startsWith("/authority/workers") },
       { id: "reports", name: "Reports", icon: <BarChart2 size={20} strokeWidth={2} />, href: "/authority/reports", isActive: pathname.startsWith("/authority/reports") },
+      { id: "warehouse", name: "Warehouse", icon: <Package size={20} strokeWidth={2} />, href: "/authority/warehouse", isActive: pathname.startsWith("/authority/warehouse") },
     ],
     bottomNavigation: defaultSidebarConfig.bottomNavigation,
   }
@@ -175,6 +177,14 @@ export default function AuthorityLayout({ children }: { children: React.ReactNod
                       </p>
                       <p className="text-[11px] text-gray-400">Authority Officer</p>
                     </div>
+                    <a
+                      href="/authority/profile"
+                      onClick={() => setProfileOpen(false)}
+                      className="flex w-full items-center gap-3 px-4 py-3 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-[#2a2a2a]"
+                    >
+                      <UserCircle2 size={15} />
+                      My Profile
+                    </a>
                     <button
                       type="button"
                       onClick={handleLogout}

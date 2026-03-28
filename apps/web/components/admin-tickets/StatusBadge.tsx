@@ -13,6 +13,7 @@ const statusStyles: Record<ComplaintStatus, string> = {
   resolved: "bg-green-100 text-green-800 border-green-200 dark:border-green-900/50 dark:bg-green-900/20 dark:text-green-300",
   rejected: "bg-zinc-200 text-zinc-700 border-zinc-300 dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-300",
   escalated: "bg-red-100 text-red-800 border-red-200 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-300",
+  pending_closure: "bg-purple-100 text-purple-800 border-purple-200 dark:border-purple-900/50 dark:bg-purple-900/20 dark:text-purple-300",
 }
 
 export default function StatusBadge({ status }: StatusBadgeProps) {

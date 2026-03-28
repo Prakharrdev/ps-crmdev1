@@ -16,6 +16,9 @@ import {
   type WorkerOption,
 } from "./dashboard-types"
 
+const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+
+
 // ─── Assign / Reassign dropdown ───────────────────────────────────────────────
 // Props:
 //   currentWorkerId — the complaint's current assigned_worker_id (or null)
@@ -37,8 +40,10 @@ export function AssignDropdown({
 }) {
   const [open,   setOpen]   = useState(false)
   const [saving, setSaving] = useState(false)
+  const [error,  setError]  = useState<string | null>(null)
   // Pre-select current worker so reassign is one click
   const [chosen, setChosen] = useState(currentWorkerId ?? "")
+
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   useGSAP(() => {
@@ -55,8 +60,10 @@ export function AssignDropdown({
   // Reset chosen when dropdown opens so it reflects fresh state
   function handleOpen() {
     setChosen(currentWorkerId ?? "")
+    setError(null)
     setOpen(o => !o)
   }
+
 
   // Show ALL workers (available + busy), grouped — authority should be able to
   // assign anyone; availability is advisory.
@@ -74,26 +81,79 @@ export function AssignDropdown({
   async function handleAssign() {
     if (!chosen) return
     setSaving(true)
-    await supabase
-      .from("complaints")
-      .update({ assigned_worker_id: chosen, status: "assigned" })
-      .eq("id", complaintId)
-    setSaving(false)
-    setOpen(false)
-    onAssigned()
+    
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) throw new Error("Not authenticated")
+
+      const response = await fetch(`${apiUrl}/api/authority/assign`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          complaint_id: complaintId,
+          worker_id: chosen,
+          status: "assigned"
+        })
+      })
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}))
+        console.error("Assignment backend error:", errData)
+        throw new Error(errData?.detail || "Failed to assign worker")
+      }
+      
+      setOpen(false)
+      onAssigned()
+    } catch (err: any) {
+      console.error("Assignment error:", err)
+      setError(err.message || "Failed to assign worker")
+    } finally {
+      setSaving(false)
+    }
   }
+
 
   async function handleUnassign() {
     setSaving(true)
-    await supabase
-      .from("complaints")
-      .update({ assigned_worker_id: null, status: "submitted" })
-      .eq("id", complaintId)
-    setSaving(false)
-    setOpen(false)
-    setChosen("")
-    onAssigned()
+    setError(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) throw new Error("Not authenticated")
+
+      const response = await fetch(`${apiUrl}/api/authority/assign`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          complaint_id: complaintId,
+          worker_id: null,
+          status: "submitted"
+        })
+      })
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}))
+        console.error("Unassignment backend error:", errData)
+        throw new Error(errData?.detail || "Failed to unassign worker")
+      }
+
+      setOpen(false)
+      setChosen("")
+      onAssigned()
+    } catch (err: any) {
+      console.error("Unassignment error:", err)
+      setError(err.message || "Failed to unassign worker")
+    } finally {
+      setSaving(false)
+    }
   }
+
+
 
   const triggerLabel = isReassign
     ? (currentWorker?.full_name ?? "Assigned")
@@ -140,7 +200,13 @@ export function AssignDropdown({
 
             {/* Worker list */}
             <div className={`${compact ? "max-h-52 overflow-y-auto" : "max-h-[60vh] overflow-y-auto"} p-1.5 space-y-0.5`}>
+              {error && (
+                <div className="mx-2 mb-2 rounded-lg bg-red-50 p-2 text-[10px] font-medium text-red-600 dark:bg-red-900/20 dark:text-red-400">
+                  ⚠️ {error}
+                </div>
+              )}
               {workers.length === 0 ? (
+
                 <p className="px-3 py-3 text-center text-xs text-gray-400">No workers in department</p>
               ) : (
                 <>

@@ -20,6 +20,8 @@ type WorkerProfileRow = {
   department: string
   availability: string
   total_resolved: number
+  average_rating?: number | null
+  total_reviews?: number | null
 }
 
 type WorkerComplaintAssignmentRow = {
@@ -80,6 +82,9 @@ export default function WorkersPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [now, setNow] = useState(() => new Date())
+
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+
   const [viewWorker, setViewWorker] = useState<AuthorityRecord | null>(null)
   const [assignWorker, setAssignWorker] = useState<AuthorityRecord | null>(null)
   const [departmentDraft, setDepartmentDraft] = useState("")
@@ -109,11 +114,16 @@ export default function WorkersPage() {
     const categoriesByDepartment = new Map<string, string[]>()
     const complaintsByWorker = new Map<string, WorkerComplaintAssignmentRow[]>()
 
+    const workerStatsByWorker = new Map<string, { average_rating?: number | null, total_reviews?: number | null }>()
     for (const worker of workerProfileRows) {
       const department = worker.department?.trim()
       if (!department) continue
       departmentsSet.add(department)
       workersByDepartment.set(department, (workersByDepartment.get(department) ?? 0) + 1)
+      workerStatsByWorker.set(worker.worker_id, { 
+        average_rating: worker.average_rating, 
+        total_reviews: worker.total_reviews 
+      })
     }
 
     for (const category of categoryRows) {
@@ -169,6 +179,8 @@ export default function WorkersPage() {
           workersCount: normalizedDepartment ? (workersByDepartment.get(normalizedDepartment) ?? 0) : 0,
           categories: normalizedDepartment ? (categoriesByDepartment.get(normalizedDepartment) ?? []) : [],
           workload: determineWorkload(activeTickets),
+          averageRating: workerStatsByWorker.get(profile.id)?.average_rating ?? 0,
+          totalReviews: workerStatsByWorker.get(profile.id)?.total_reviews ?? 0,
         } satisfies AuthorityRecord
       })
       .sort((a, b) => {
@@ -198,11 +210,11 @@ export default function WorkersPage() {
     }
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
       const response = await fetch(`${apiUrl}/api/admin/workers`, {
         method: "GET",
         headers: { Authorization: `Bearer ${session.access_token}` },
       })
+
 
       const payload = (await response.json().catch(() => null)) as {
         error?: string
@@ -313,7 +325,7 @@ export default function WorkersPage() {
       return
     }
 
-    const response = await fetch("/api/admin/workers", {
+    const response = await fetch(`${apiUrl}/api/admin/workers`, {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
@@ -321,6 +333,7 @@ export default function WorkersPage() {
       },
       body: JSON.stringify({ worker_id: assignWorker.id, department: departmentDraft }),
     })
+
 
     const payload = (await response.json().catch(() => null)) as { error?: string } | null
 
@@ -377,7 +390,7 @@ export default function WorkersPage() {
       return
     }
 
-    const response = await fetch("/api/admin/workers", {
+    const response = await fetch(`${apiUrl}/api/admin/workers`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -392,6 +405,7 @@ export default function WorkersPage() {
         department,
       }),
     })
+
 
     const payload = (await response.json().catch(() => null)) as { error?: string } | null
 
@@ -477,6 +491,8 @@ export default function WorkersPage() {
               <p><span className="font-semibold">Active Tickets:</span> {viewWorker.activeTickets}</p>
               <p><span className="font-semibold">Resolved Today:</span> {viewWorker.resolvedToday}</p>
               <p><span className="font-semibold">Avg. Resolution:</span> {viewWorker.avgResolutionDays.toFixed(1)} days</p>
+              <p><span className="font-semibold">Avg. Rating:</span> {viewWorker.averageRating ? `${viewWorker.averageRating.toFixed(1)} / 5.0` : "N/A"}</p>
+              <p><span className="font-semibold">Total Reviews:</span> {viewWorker.totalReviews ?? 0}</p>
               <p><span className="font-semibold">Workers in Dept:</span> {viewWorker.workersCount}</p>
             </div>
           </div>

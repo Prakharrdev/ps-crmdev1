@@ -379,6 +379,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     aria-label="Profile menu"
                     className="absolute right-0 z-[2000] mt-2 w-48 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#1e1e1e] py-1 shadow-lg"
                   >
+                    <a
+                      href="/citizen/profile"
+                      role="menuitem"
+                      onClick={() => setIsProfileMenuOpen(false)}
+                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-[#2a2a2a] transition-colors"
+                    >
+                      <UserCircle2 size={16} />
+                      <span>My Profile</span>
+                    </a>
                     <button
                       type="button"
                       role="menuitem"

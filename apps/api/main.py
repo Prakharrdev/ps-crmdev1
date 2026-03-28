@@ -12,6 +12,7 @@ from io import BytesIO
 from datetime import datetime, timezone
 from typing import Optional, Dict, List, Any
 from math import radians, sin, cos, sqrt, atan2
+import httpx
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Header, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -68,7 +69,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=False,
-    allow_methods=["POST", "OPTIONS", "GET"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
 )
 
@@ -125,6 +126,61 @@ class TicketCreated(BaseModel):
     image_metadata: Optional[Dict[str, str]] = None
 
 
+class ReviewSubmission(BaseModel):
+    complaint_id: str
+    rating: int        # 1-5
+    feedback: Optional[str] = None
+
+
+class MaterialRequestCreate(BaseModel):
+    complaint_id: str
+    material_id: str
+    quantity: int
+    notes: Optional[str] = None
+
+
+class MaterialAllotRequest(BaseModel):
+    request_id: str
+    status: str # 'allotted' or 'rejected'
+    notes: Optional[str] = None
+
+
+class AdminAuthorityUpdate(BaseModel):
+    authority_id: str
+    department: str
+
+
+class AdminAuthorityCreate(BaseModel):
+    full_name: str
+    email: str
+    password: str
+    phone: Optional[str] = None
+    city: Optional[str] = None
+    department: str
+
+
+class AdminWorkerUpdate(BaseModel):
+    worker_id: str
+    department: str
+
+
+class AdminWorkerCreate(BaseModel):
+    full_name: str
+    email: str
+    password: str
+    phone: Optional[str] = None
+    city: Optional[str] = None
+    department: str
+
+
+class ComplaintAssignRequest(BaseModel):
+    complaint_id: str
+    worker_id: Optional[str] = None
+    status: str
+
+
+
+
 # =========================================================
 # 5. HELPERS
 # =========================================================
@@ -149,6 +205,23 @@ def get_citizen_id_from_token(authorization: Optional[str]) -> str:
         return citizen_id
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Failed to decode JWT: {str(e)}")
+
+
+async def require_admin(authorization: Optional[str]) -> str:
+    """Verify the caller has the 'admin' role in the profiles table."""
+    user_id = get_citizen_id_from_token(authorization)
+    try:
+        res = await asyncio.to_thread(
+            lambda: supabase.table("profiles").select("role").eq("id", user_id).maybe_single().execute()
+        )
+        if not res.data or res.data.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Forbidden. Admin role required.")
+        return user_id
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Admin validation failed: {str(e)}")
+
 
 
 class ChatHistory(BaseModel):
@@ -642,6 +715,47 @@ async def confirm(
 # 8b. CITIZEN TICKETS (with Redis Caching & Delta support)
 # =========================================================
 
+@app.get("/citizen/nearby")
+async def get_citizen_nearby(authorization: Optional[str] = Header(None)):
+    """
+    Fetch all complaints for the nearby map, excluding the citizen's own tickets.
+    Cached in Redis.
+    """
+    citizen_id = get_citizen_id_from_token(authorization)
+    cache_key = "global:citizen:nearby_tickets"
+
+    if redis_client:
+        try:
+            cached_data = redis_client.get(cache_key)
+            if cached_data:
+                all_tickets = json.loads(cached_data)
+                filtered_tickets = [t for t in all_tickets if t.get("citizen_id") != citizen_id]
+                return {"source": "cache", "items": filtered_tickets}
+        except Exception as e:
+            print(f"Redis read error: {e}")
+
+    try:
+        response = supabase.table("complaints").select(
+            "id, ticket_id, title, description, severity, effective_severity, location, "
+            "photo_urls, upvote_count, status, created_at, address_text, ward_name, "
+            "category_id, assigned_department, citizen_id"
+        ).order("upvote_count", desc=True).limit(500).execute()
+        
+        all_tickets = response.data or []
+        
+        if redis_client:
+            try:
+                redis_client.setex(cache_key, 300, json.dumps(all_tickets)) # 5 minute cache
+            except Exception as e:
+                print(f"Redis write error: {e}")
+
+        filtered_tickets = [t for t in all_tickets if t.get("citizen_id") != citizen_id]
+        return {"source": "database", "items": filtered_tickets}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database query failed: {str(e)}")
+
+
+
 @app.get("/citizen/tickets")
 async def get_citizen_tickets(
     since: Optional[str] = None,
@@ -668,7 +782,7 @@ async def get_citizen_tickets(
 
     # 2. Fallback to Supabase
     query = supabase.table("complaints").select(
-        "id, ticket_id, title, address_text, assigned_department, status, created_at, upvote_count"
+        "id, ticket_id, title, address_text, assigned_department, status, created_at, upvote_count, reviews(rating)"
     ).eq("citizen_id", citizen_id).order("created_at", desc=True)
 
     if since:
@@ -691,6 +805,78 @@ async def get_citizen_tickets(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database query failed: {str(e)}")
+
+
+@app.post("/api/complaints/review")
+async def submit_complaint_review(
+    review: ReviewSubmission,
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Allow citizens to rate resolved tickets.
+    Updates worker performance via DB trigger on the 'reviews' table.
+    """
+    citizen_id = get_citizen_id_from_token(authorization)
+
+    # 1. Fetch complaint to verify ownership, status, and assigned worker
+    try:
+        comp_res = await asyncio.to_thread(
+            lambda: supabase.table("complaints")
+            .select("id, status, citizen_id, assigned_worker_id")
+            .eq("id", review.complaint_id)
+            .maybe_single()
+            .execute()
+        )
+        complaint = comp_res.data
+        if not complaint:
+            raise HTTPException(status_code=404, detail="Complaint not found")
+        
+        if complaint["citizen_id"] != citizen_id:
+            raise HTTPException(status_code=403, detail="You can only rate your own tickets")
+        
+        if complaint["status"] not in ["resolved", "rejected"]:
+            raise HTTPException(status_code=400, detail="Only resolved or rejected tickets can be rated")
+        
+        if not complaint.get("assigned_worker_id"):
+            raise HTTPException(status_code=400, detail="No worker was assigned to this ticket")
+
+        # 2. Insert the review
+        # The 'worker_id' column in the 'reviews' table triggers the performance update in 'worker_profiles'
+        review_res = await asyncio.to_thread(
+            lambda: supabase.table("reviews").insert({
+                "complaint_id": review.complaint_id,
+                "citizen_id":   citizen_id,
+                "worker_id":    complaint["assigned_worker_id"],
+                "rating":       review.rating,
+                "feedback":     review.feedback
+            }).execute()
+        )
+        
+        if not review_res.data:
+            raise HTTPException(status_code=500, detail="Failed to save review")
+
+        # Invalidate any authority/worker caches so they see the fresh rating
+        if redis_client:
+            try:
+                # Invalidate worker dashboard and profiles for the specific worker
+                wid = complaint["assigned_worker_id"]
+                redis_client.delete(f"worker:dashboard:{wid}")
+                redis_client.delete(f"worker:profile:v2:{wid}")
+                # Plus any generic authority worker lists (lazy: wipe all, or pattern match)
+                for key in redis_client.scan_iter("authority:workers:*"):
+                    redis_client.delete(key)
+            except Exception as e:
+                print(f"Redis invalidation on review failed: {e}")
+
+        return {"status": "success", "message": "Review submitted"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Check for unique constraint violation (one review per complaint)
+        if "unique" in str(e).lower():
+            raise HTTPException(status_code=409, detail="This ticket has already been rated")
+        raise HTTPException(status_code=500, detail=f"Review submission failed: {str(e)}")
 
 
 # =========================================================
@@ -809,9 +995,99 @@ async def get_admin_authorities_list(
                 print(f"Redis write error: {e}")
 
         return { "source": "database", **payload }
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Authorities data fetch failed: {str(e)}")
+
+
+
+@app.patch("/api/admin/authorities")
+async def update_admin_authority(
+    payload: AdminAuthorityUpdate,
+    authorization: Optional[str] = Header(None)
+):
+    """Update authority department and invalidate Redis cache."""
+    await require_admin(authorization)
+    
+    try:
+        # 1. Update Profile
+        await asyncio.to_thread(
+            lambda: supabase.table("profiles")
+            .update({"department": payload.department})
+            .eq("id", payload.authority_id)
+            .execute()
+        )
+
+        # 2. Update active complaints assigned to this officer
+        active_statuses = ["submitted", "under_review", "assigned", "in_progress", "escalated"]
+        await asyncio.to_thread(
+            lambda: supabase.table("complaints")
+            .update({"assigned_department": payload.department})
+            .eq("assigned_officer_id", payload.authority_id)
+            .in_("status", active_statuses)
+            .execute()
+        )
+
+        # 3. Invalidate Redis Cache
+        if redis_client:
+            try:
+                redis_client.delete("admin:authorities:list")
+            except Exception as e:
+                print(f"Redis invalidation failed: {e}")
+
+        return {"status": "success", "message": "Authority department updated"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update authority: {str(e)}")
+
+
+@app.post("/api/admin/authorities")
+async def create_admin_authority(
+    payload: AdminAuthorityCreate,
+    authorization: Optional[str] = Header(None)
+):
+    """Create a new authority: Auth user + Profile + Redis invalidation."""
+    await require_admin(authorization)
+    
+    try:
+        # 1. Create Auth User
+        auth_res = await asyncio.to_thread(
+            lambda: supabase.auth.admin.create_user({
+                "email": payload.email,
+                "password": payload.password,
+                "email_confirm": True,
+                "user_metadata": {
+                    "full_name": payload.full_name,
+                    "role": "authority",
+                    "department": payload.department
+                }
+            })
+        )
+        
+        user_id = auth_res.user.id
+
+        # 2. Create Profile
+        await asyncio.to_thread(
+            lambda: supabase.table("profiles").upsert({
+                "id": user_id,
+                "email": payload.email,
+                "full_name": payload.full_name,
+                "phone": payload.phone,
+                "city": payload.city,
+                "department": payload.department,
+                "role": "authority",
+                "is_blocked": False
+            }, on_conflict="id").execute()
+        )
+
+        # 3. Invalidate Redis
+        if redis_client:
+            try:
+                redis_client.delete("admin:authorities:list")
+            except Exception as e:
+                print(f"Redis invalidation failed: {e}")
+
+        return {"status": "success", "id": user_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create authority: {str(e)}")
 
 
 # =========================================================
@@ -839,7 +1115,7 @@ async def get_admin_workers_list(
         [profiles_res, complaints_res, worker_profiles_res, categories_res] = await asyncio.gather(
             asyncio.to_thread(lambda: supabase.table("profiles").select("id, full_name, email, phone, city, department, is_blocked, created_at").eq("role", "worker").order("created_at", desc=True).execute()),
             asyncio.to_thread(lambda: supabase.table("complaints").select("id, assigned_worker_id, assigned_department, status, created_at, resolved_at").execute()),
-            asyncio.to_thread(lambda: supabase.table("worker_profiles").select("worker_id, department, availability, total_resolved").execute()),
+            asyncio.to_thread(lambda: supabase.table("worker_profiles").select("worker_id, department, availability, total_resolved, average_rating, total_reviews").execute()),
             asyncio.to_thread(lambda: supabase.table("categories").select("name, department").eq("is_active", True).execute())
         )
 
@@ -862,9 +1138,174 @@ async def get_admin_workers_list(
         raise HTTPException(status_code=500, detail=f"Workers data fetch failed: {str(e)}")
 
 
+@app.patch("/api/admin/workers")
+async def update_admin_worker(
+    payload: AdminWorkerUpdate,
+    authorization: Optional[str] = Header(None)
+):
+    """Update worker department, upsert worker_profile, and invalidate Redis cache."""
+    await require_admin(authorization)
+    
+    try:
+        # 1. Update Profile
+        await asyncio.to_thread(
+            lambda: supabase.table("profiles")
+            .update({"department": payload.department})
+            .eq("id", payload.worker_id)
+            .execute()
+        )
+
+        # 2. Upsert Worker Profile details
+        await asyncio.to_thread(
+            lambda: supabase.table("worker_profiles")
+            .upsert({
+                "worker_id": payload.worker_id,
+                "department": payload.department,
+                "availability": "available"
+            }, on_conflict="worker_id")
+            .execute()
+        )
+
+        # 3. Update active complaints assigned to this worker
+        active_statuses = ["submitted", "under_review", "assigned", "in_progress", "escalated"]
+        await asyncio.to_thread(
+            lambda: supabase.table("complaints")
+            .update({"assigned_department": payload.department})
+            .eq("assigned_worker_id", payload.worker_id)
+            .in_("status", active_statuses)
+            .execute()
+        )
+
+        # 4. Invalidate Redis Cache
+        if redis_client:
+            try:
+                redis_client.delete("admin:workers:list")
+            except Exception as e:
+                print(f"Redis invalidation failed: {e}")
+
+        return {"status": "success", "message": "Worker department updated"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update worker: {str(e)}")
+
+
+@app.post("/api/admin/workers")
+async def create_admin_worker(
+    payload: AdminWorkerCreate,
+    authorization: Optional[str] = Header(None)
+):
+    """Create a new worker: Auth user + Profile + Worker Profile + Redis invalidation."""
+    await require_admin(authorization)
+    
+    try:
+        # 1. Create Auth User
+        auth_res = await asyncio.to_thread(
+            lambda: supabase.auth.admin.create_user({
+                "email": payload.email,
+                "password": payload.password,
+                "email_confirm": True,
+                "user_metadata": {
+                    "full_name": payload.full_name,
+                    "role": "worker",
+                    "department": payload.department
+                }
+            })
+        )
+        
+        user_id = auth_res.user.id
+
+        # 2. Create Profile
+        await asyncio.to_thread(
+            lambda: supabase.table("profiles").upsert({
+                "id": user_id,
+                "email": payload.email,
+                "full_name": payload.full_name,
+                "phone": payload.phone,
+                "city": payload.city,
+                "department": payload.department,
+                "role": "worker",
+                "is_blocked": False
+            }, on_conflict="id").execute()
+        )
+
+        # 3. Create Worker Profile details
+        await asyncio.to_thread(
+            lambda: supabase.table("worker_profiles").upsert({
+                "worker_id": user_id,
+                "department": payload.department,
+                "city": payload.city or "Unknown",
+                "availability": "available"
+            }, on_conflict="worker_id").execute()
+        )
+
+        # 4. Invalidate Redis
+        if redis_client:
+            try:
+                redis_client.delete("admin:workers:list")
+            except Exception as e:
+                print(f"Redis invalidation failed: {e}")
+
+        return {"status": "success", "id": user_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create worker: {str(e)}")
+
+
+
+
+@app.patch("/api/authority/assign")
+async def assign_complaint(
+    payload: ComplaintAssignRequest,
+    authorization: Optional[str] = Header(None)
+):
+    """Assign/Unassign worker to a complaint and invalidate caches."""
+    user_id = get_citizen_id_from_token(authorization)
+    # Role check: must be admin or authority
+    res = await asyncio.to_thread(lambda: supabase.table("profiles").select("role").eq("id", user_id).maybe_single().execute())
+    
+    current_role = (res.data.get("role") or "").lower() if res.data else ""
+    print(f"DEBUG: User {user_id} has role: '{current_role}'")
+    
+    if current_role not in ["admin", "authority"]:
+        print(f"DEBUG: Role check failed for user {user_id}. Role found: {current_role}")
+        raise HTTPException(status_code=403, detail=f"Forbidden. {current_role.capitalize() if current_role else 'Unknown'} role not authorized for assignment.")
+
+
+    try:
+        # Update complaint
+        print(f"DEBUG: Authority {user_id} assigning worker {payload.worker_id} to complaint {payload.complaint_id}")
+        
+        res = await asyncio.to_thread(
+            lambda: supabase.rpc("assign_worker_to_complaint", {
+                "p_admin_id": user_id,
+                "p_complaint_id": payload.complaint_id,
+                "p_worker_id": payload.worker_id if payload.worker_id else None
+            }).execute()
+        )
+        
+        if hasattr(res, 'error') and res.error:
+            print(f"DEBUG: Assignment DB Error: {res.error}")
+            raise Exception(str(res.error))
+
+        # Invalidate Redis Caches
+        if redis_client:
+            try:
+                # 1. Dashboard for THIS user (authority)
+                redis_client.delete(f"authority:dashboard:{user_id}")
+                # 2. Admin complaints list (since assignment/status changed)
+                redis_client.delete("admin:complaints:list")
+            except Exception as e:
+                print(f"Redis invalidation failed: {e}")
+
+        return {"status": "success"}
+    except Exception as e:
+        print(f"DEBUG: Full Assignment Exception: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Assignment failed: {str(e)}")
+
+
+
 # =========================================================
 # 8f. ADMIN COMPLAINTS LIST (Consolidated + Redis)
 # =========================================================
+
 
 def _parse_priority_to_severity(priority: str) -> Optional[str]:
     mapping = {"low": "L1", "medium": "L2", "high": "L3", "emergency": "L4"}
@@ -1194,6 +1635,7 @@ async def get_authority_workers(
     try:
         worker_query = supabase.table("worker_profiles").select(
             "worker_id, availability, department, city, total_resolved, "
+            "average_rating, total_reviews, "
             "current_complaint_id, joined_at, profiles(full_name, email)"
         )
         if department:
@@ -1301,7 +1743,7 @@ async def get_worker_dashboard(
         [worker_profile_res, complaints_res, history_res] = await asyncio.gather(
             asyncio.to_thread(
                 lambda: supabase.table("worker_profiles")
-                .select("last_location")
+                .select("last_location, average_rating, total_reviews")
                 .eq("worker_id", worker_id)
                 .maybe_single()
                 .execute()
@@ -1376,7 +1818,7 @@ async def get_worker_profile_data(
             ),
             asyncio.to_thread(
                 lambda: supabase.table("worker_profiles")
-                .select("department, joined_at, availability, total_resolved, current_complaint_id")
+                .select("department, joined_at, availability, total_resolved, current_complaint_id, average_rating, total_reviews")
                 .eq("worker_id", worker_id)
                 .maybe_single()
                 .execute()
@@ -1418,6 +1860,255 @@ async def get_worker_profile_data(
             print(f"Redis write error: {e}")
 
     return {"source": "database", **payload}
+
+
+# =========================================================
+# 8j. WAREHOUSE & MATERIAL TRACKING
+# =========================================================
+
+@app.get("/api/warehouse/inventory")
+async def get_warehouse_inventory(
+    authorization: Optional[str] = Header(None)
+):
+    """Fetch all materials from warehouse_inventory."""
+    get_citizen_id_from_token(authorization)
+    
+    try:
+        response = await asyncio.to_thread(
+            lambda: supabase.table("warehouse_inventory")
+            .select("*")
+            .order("name")
+            .execute()
+        )
+        return {"items": response.data or []}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch inventory: {str(e)}")
+
+
+@app.post("/api/worker/material-request")
+async def create_material_request(
+    request: MaterialRequestCreate,
+    authorization: Optional[str] = Header(None)
+):
+    """Worker requests materials for a complaint."""
+    worker_id = get_citizen_id_from_token(authorization)
+    
+    try:
+        # Trim whitespace from URL and keys if any
+        base_url = SUPABASE_URL.strip().rstrip("/")
+        api_key = SUPABASE_SERVICE_KEY.strip()
+
+        # 1. Verify worker is assigned to this complaint using direct REST API
+        async with httpx.AsyncClient() as client:
+            comp_resp = await client.get(
+                f"{base_url}/rest/v1/complaints",
+                params={
+                    "id": f"eq.{request.complaint_id}",
+                    "select": "id,assigned_worker_id"
+                },
+                headers={
+                    "apikey": api_key,
+                    "Authorization": f"Bearer {api_key}"
+                },
+                timeout=10.0
+            )
+        
+        if comp_resp.status_code != 200:
+            raise HTTPException(status_code=comp_resp.status_code, detail=f"Failed to verify complaint ({comp_resp.status_code}): {comp_resp.text}")
+        
+        comp_data = comp_resp.json()
+        if not comp_data:
+            raise HTTPException(status_code=404, detail="Complaint not found")
+        
+        # Check assignment
+        if comp_data[0].get("assigned_worker_id") != worker_id:
+            raise HTTPException(status_code=403, detail="You are not assigned to this complaint")
+            
+        # 2. Insert via direct REST API (bypasses supabase-py 204 bug)
+        insert_payload = {
+            "worker_id": worker_id,
+            "complaint_id": request.complaint_id,
+            "material_id": request.material_id,
+            "requested_quantity": request.quantity,
+            "status": "pending",
+            "notes": request.notes
+        }
+        
+        # Trim whitespace from URL and keys if any
+        base_url = SUPABASE_URL.strip().rstrip("/")
+        api_key = SUPABASE_SERVICE_KEY.strip()
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    f"{base_url}/rest/v1/material_requests",
+                    json=insert_payload,
+                    headers={
+                        "apikey": api_key,
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                        "Prefer": "return=representation",
+                    },
+                    timeout=15.0,
+                )
+            
+            print(f"[material-request] PostgREST status={resp.status_code}")
+            if resp.status_code in (200, 201):
+                try:
+                    data = resp.json()
+                    return {"status": "success", "data": data[0] if isinstance(data, list) and data else data}
+                except Exception as json_err:
+                    print(f"[material-request] JSON parse error: {str(json_err)}")
+                    return {"status": "success", "data": insert_payload}
+            elif resp.status_code == 204:
+                return {"status": "success", "data": insert_payload}
+            else:
+                err_text = resp.text[:500]
+                print(f"[material-request] PostgREST error {resp.status_code}: {err_text}")
+                raise HTTPException(status_code=resp.status_code, detail=f"PostgREST error ({resp.status_code}): {err_text}")
+                
+        except httpx.HTTPError as http_err:
+            print(f"[material-request] httpx error: {repr(http_err)}")
+            raise HTTPException(status_code=500, detail=f"HTTP connection error: {repr(http_err)}")
+        except Exception as inner_e:
+            import traceback
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=f"Internal logic error: {type(inner_e).__name__}: {str(inner_e)}")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Critical failure: {str(e)}")
+
+
+@app.get("/api/authority/material-requests")
+async def get_authority_material_requests(
+    authorization: Optional[str] = Header(None)
+):
+    """Authority sees pending material requests."""
+    get_citizen_id_from_token(authorization)
+    
+    try:
+        base_url = SUPABASE_URL.strip().rstrip("/")
+        api_key = SUPABASE_SERVICE_KEY.strip()
+
+        # Authority sees pending material requests using direct REST API
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{base_url}/rest/v1/material_requests",
+                params={
+                    "status": "eq.pending",
+                    "select": "*,profiles:worker_id(full_name),complaints(ticket_id),warehouse_inventory(name,unit)",
+                    "order": "created_at.desc"
+                },
+                headers={
+                    "apikey": api_key,
+                    "Authorization": f"Bearer {api_key}"
+                },
+                timeout=10.0
+            )
+        
+        if resp.status_code != 200:
+            raise HTTPException(status_code=resp.status_code, detail=f"Failed to fetch requests ({resp.status_code}): {resp.text}")
+            
+        return {"requests": resp.json()}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to fetch requests: {str(e)}")
+
+
+@app.post("/api/authority/material-allot")
+async def allot_material(
+    request: MaterialAllotRequest,
+    authorization: Optional[str] = Header(None)
+):
+    """Authority approves/allots or rejects material request."""
+    get_citizen_id_from_token(authorization)
+    
+    try:
+        base_url = SUPABASE_URL.strip().rstrip("/")
+        api_key = SUPABASE_SERVICE_KEY.strip()
+
+        # 1. Get the request details
+        async with httpx.AsyncClient() as client:
+            req_resp = await client.get(
+                f"{base_url}/rest/v1/material_requests",
+                params={
+                    "id": f"eq.{request.request_id}",
+                    "select": "*,warehouse_inventory(available_quantity)"
+                },
+                headers={
+                    "apikey": api_key,
+                    "Authorization": f"Bearer {api_key}"
+                },
+                timeout=10.0
+            )
+        
+        if req_resp.status_code != 200:
+            raise HTTPException(status_code=req_resp.status_code, detail=f"Failed to fetch request ({req_resp.status_code}): {req_resp.text}")
+        
+        req_list = req_resp.json()
+        if not req_list:
+            raise HTTPException(status_code=404, detail="Request not found")
+        
+        req_data = req_list[0]
+        if req_data["status"] != "pending":
+            raise HTTPException(status_code=400, detail=f"Request is already {req_data['status']}")
+            
+        if request.status == "allotted":
+            available = req_data["warehouse_inventory"]["available_quantity"]
+            if available < req_data["requested_quantity"]:
+                raise HTTPException(status_code=400, detail="Insufficient inventory for this request")
+            
+            # Decrement inventory using httpx
+            async with httpx.AsyncClient() as client:
+                inv_resp = await client.patch(
+                    f"{base_url}/rest/v1/warehouse_inventory",
+                    params={"id": f"eq.{req_data['material_id']}"},
+                    json={"available_quantity": available - req_data["requested_quantity"]},
+                    headers={
+                        "apikey": api_key,
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    timeout=10.0
+                )
+            if inv_resp.status_code not in (200, 201, 204):
+                raise HTTPException(status_code=inv_resp.status_code, detail=f"Failed to update inventory ({inv_resp.status_code}): {inv_resp.text}")
+            
+        # 2. Update request status
+        update_payload = {
+            "status": request.status,
+            "notes": request.notes,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        async with httpx.AsyncClient() as client:
+            upd_resp = await client.patch(
+                f"{base_url}/rest/v1/material_requests",
+                params={"id": f"eq.{request.request_id}"},
+                json=update_payload,
+                headers={
+                    "apikey": api_key,
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    "Prefer": "return=representation"
+                },
+                timeout=10.0
+            )
+        
+        if upd_resp.status_code not in (200, 201, 204):
+            raise HTTPException(status_code=upd_resp.status_code, detail=f"Failed to update request status ({upd_resp.status_code}): {upd_resp.text}")
+            
+        upd_data = upd_resp.json() if upd_resp.status_code != 204 else update_payload
+        return {"status": "success", "data": upd_data[0] if isinstance(upd_data, list) and upd_data else upd_data}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to process allotment: {str(e)}")
 
 
 # =========================================================

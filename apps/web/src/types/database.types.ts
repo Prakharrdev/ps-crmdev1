@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.4"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       categories: {
@@ -67,14 +92,51 @@ export type Database = {
           },
         ]
       }
+      cctv_cameras: {
+        Row: {
+          created_at: string | null
+          digipin: string | null
+          id: string
+          last_status: string | null
+          latitude: number
+          longitude: number
+          name: string
+          road_type: string
+          video_url: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          digipin?: string | null
+          id?: string
+          last_status?: string | null
+          latitude: number
+          longitude: number
+          name: string
+          road_type: string
+          video_url?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          digipin?: string | null
+          id?: string
+          last_status?: string | null
+          latitude?: number
+          longitude?: number
+          name?: string
+          road_type?: string
+          video_url?: string | null
+        }
+        Relationships: []
+      }
       complaints: {
         Row: {
           address_text: string | null
           assigned_department: string | null
           assigned_officer_id: string | null
           assigned_worker_id: string | null
+          camera_id: string | null
           category_id: number
-          citizen_id: string
+          citizen_id: string | null
           city: string
           created_at: string
           description: string
@@ -88,6 +150,7 @@ export type Database = {
           photo_urls: string[] | null
           pincode: string | null
           possible_duplicate: boolean
+          rejection_reason: string | null
           reopen_count: number
           reopen_deadline: string | null
           resolution_note: string | null
@@ -95,6 +158,7 @@ export type Database = {
           severity: Database["public"]["Enums"]["severity_level"]
           sla_breached: boolean
           sla_deadline: string | null
+          source: Database["public"]["Enums"]["complaint_source"] | null
           status: Database["public"]["Enums"]["complaint_status"]
           ticket_id: string
           title: string
@@ -108,8 +172,9 @@ export type Database = {
           assigned_department?: string | null
           assigned_officer_id?: string | null
           assigned_worker_id?: string | null
+          camera_id?: string | null
           category_id: number
-          citizen_id: string
+          citizen_id?: string | null
           city?: string
           created_at?: string
           description: string
@@ -123,6 +188,7 @@ export type Database = {
           photo_urls?: string[] | null
           pincode?: string | null
           possible_duplicate?: boolean
+          rejection_reason?: string | null
           reopen_count?: number
           reopen_deadline?: string | null
           resolution_note?: string | null
@@ -130,6 +196,7 @@ export type Database = {
           severity?: Database["public"]["Enums"]["severity_level"]
           sla_breached?: boolean
           sla_deadline?: string | null
+          source?: Database["public"]["Enums"]["complaint_source"] | null
           status?: Database["public"]["Enums"]["complaint_status"]
           ticket_id: string
           title: string
@@ -143,8 +210,9 @@ export type Database = {
           assigned_department?: string | null
           assigned_officer_id?: string | null
           assigned_worker_id?: string | null
+          camera_id?: string | null
           category_id?: number
-          citizen_id?: string
+          citizen_id?: string | null
           city?: string
           created_at?: string
           description?: string
@@ -158,6 +226,7 @@ export type Database = {
           photo_urls?: string[] | null
           pincode?: string | null
           possible_duplicate?: boolean
+          rejection_reason?: string | null
           reopen_count?: number
           reopen_deadline?: string | null
           resolution_note?: string | null
@@ -165,6 +234,7 @@ export type Database = {
           severity?: Database["public"]["Enums"]["severity_level"]
           sla_breached?: boolean
           sla_deadline?: string | null
+          source?: Database["public"]["Enums"]["complaint_source"] | null
           status?: Database["public"]["Enums"]["complaint_status"]
           ticket_id?: string
           title?: string
@@ -189,6 +259,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "complaints_camera_id_fkey"
+            columns: ["camera_id"]
+            isOneToOne: false
+            referencedRelation: "cctv_cameras"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "complaints_category_id_fkey"
             columns: ["category_id"]
             isOneToOne: false
@@ -198,6 +275,96 @@ export type Database = {
           {
             foreignKeyName: "complaints_citizen_id_fkey"
             columns: ["citizen_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      detections_telemetry: {
+        Row: {
+          camera_id: string | null
+          confidence: number
+          digipin: string
+          id: string
+          timestamp: string | null
+        }
+        Insert: {
+          camera_id?: string | null
+          confidence: number
+          digipin: string
+          id?: string
+          timestamp?: string | null
+        }
+        Update: {
+          camera_id?: string | null
+          confidence?: number
+          digipin?: string
+          id?: string
+          timestamp?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "detections_telemetry_camera_id_fkey"
+            columns: ["camera_id"]
+            isOneToOne: false
+            referencedRelation: "cctv_cameras"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      material_requests: {
+        Row: {
+          complaint_id: string
+          created_at: string | null
+          id: string
+          material_id: string
+          notes: string | null
+          requested_quantity: number
+          status: string
+          updated_at: string | null
+          worker_id: string
+        }
+        Insert: {
+          complaint_id: string
+          created_at?: string | null
+          id?: string
+          material_id: string
+          notes?: string | null
+          requested_quantity: number
+          status?: string
+          updated_at?: string | null
+          worker_id: string
+        }
+        Update: {
+          complaint_id?: string
+          created_at?: string | null
+          id?: string
+          material_id?: string
+          notes?: string | null
+          requested_quantity?: number
+          status?: string
+          updated_at?: string | null
+          worker_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "material_requests_complaint_id_fkey"
+            columns: ["complaint_id"]
+            isOneToOne: false
+            referencedRelation: "complaints"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "material_requests_material_id_fkey"
+            columns: ["material_id"]
+            isOneToOne: false
+            referencedRelation: "warehouse_inventory"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "material_requests_worker_id_fkey"
+            columns: ["worker_id"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -263,6 +430,7 @@ export type Database = {
           feedback: string | null
           id: string
           rating: number
+          worker_id: string | null
         }
         Insert: {
           citizen_id: string
@@ -271,6 +439,7 @@ export type Database = {
           feedback?: string | null
           id?: string
           rating: number
+          worker_id?: string | null
         }
         Update: {
           citizen_id?: string
@@ -279,6 +448,7 @@ export type Database = {
           feedback?: string | null
           id?: string
           rating?: number
+          worker_id?: string | null
         }
         Relationships: [
           {
@@ -294,6 +464,13 @@ export type Database = {
             isOneToOne: true
             referencedRelation: "complaints"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reviews_worker_id_fkey"
+            columns: ["worker_id"]
+            isOneToOne: false
+            referencedRelation: "worker_profiles"
+            referencedColumns: ["worker_id"]
           },
         ]
       }
@@ -331,6 +508,44 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      suspected_incidents: {
+        Row: {
+          detection_count: number | null
+          digipin: string
+          first_detected: string | null
+          last_camera_id: string | null
+          last_detected: string | null
+          max_confidence: number
+          status: string
+        }
+        Insert: {
+          detection_count?: number | null
+          digipin: string
+          first_detected?: string | null
+          last_camera_id?: string | null
+          last_detected?: string | null
+          max_confidence: number
+          status: string
+        }
+        Update: {
+          detection_count?: number | null
+          digipin?: string
+          first_detected?: string | null
+          last_camera_id?: string | null
+          last_detected?: string | null
+          max_confidence?: number
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "suspected_incidents_last_camera_id_fkey"
+            columns: ["last_camera_id"]
+            isOneToOne: false
+            referencedRelation: "cctv_cameras"
             referencedColumns: ["id"]
           },
         ]
@@ -419,35 +634,89 @@ export type Database = {
           },
         ]
       }
+      user_mapping: {
+        Row: {
+          email: string
+          new_id: string | null
+          old_id: string | null
+        }
+        Insert: {
+          email: string
+          new_id?: string | null
+          old_id?: string | null
+        }
+        Update: {
+          email?: string
+          new_id?: string | null
+          old_id?: string | null
+        }
+        Relationships: []
+      }
+      warehouse_inventory: {
+        Row: {
+          available_quantity: number
+          created_at: string | null
+          description: string | null
+          id: string
+          name: string
+          unit: string
+          updated_at: string | null
+        }
+        Insert: {
+          available_quantity?: number
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          name: string
+          unit: string
+          updated_at?: string | null
+        }
+        Update: {
+          available_quantity?: number
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          name?: string
+          unit?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       worker_profiles: {
         Row: {
           availability: string
+          average_rating: number | null
           city: string
           current_complaint_id: string | null
           department: string
           joined_at: string
           last_location: unknown
           total_resolved: number
+          total_reviews: number | null
           worker_id: string
         }
         Insert: {
           availability: string
+          average_rating?: number | null
           city?: string
           current_complaint_id?: string | null
           department: string
           joined_at?: string
           last_location?: unknown
           total_resolved?: number
+          total_reviews?: number | null
           worker_id: string
         }
         Update: {
           availability?: string
+          average_rating?: number | null
           city?: string
           current_complaint_id?: string | null
           department?: string
           joined_at?: string
           last_location?: unknown
           total_resolved?: number
+          total_reviews?: number | null
           worker_id?: string
         }
         Relationships: [
@@ -480,17 +749,29 @@ export type Database = {
         }
         Returns: Json
       }
-      check_for_duplicate_report: {
-        Args: { p_category_id: number; p_lat: number; p_lng: number }
-        Returns: {
-          distance_meters: number
-          id: string
-          status: string
-          ticket_id: string
-          title: string
-          upvote_count: number
-        }[]
-      }
+      check_for_duplicate_report:
+        | {
+            Args: { p_category_id: number; p_lat: number; p_lng: number }
+            Returns: {
+              distance_meters: number
+              id: string
+              status: string
+              ticket_id: string
+              title: string
+              upvote_count: number
+            }[]
+          }
+        | {
+            Args: { p_category_id: number; p_lat: number; p_lng: number }
+            Returns: {
+              distance_meters: number
+              id: string
+              status: string
+              ticket_id: string
+              title: string
+              upvote_count: number
+            }[]
+          }
       check_sla_breaches: { Args: never; Returns: number }
       get_category_breakdown: {
         Args: never
@@ -507,20 +788,35 @@ export type Database = {
           submitted: number
         }[]
       }
-      get_nearby_complaints: {
-        Args: { p_lat: number; p_lng: number; p_radius_m?: number }
-        Returns: {
-          category_id: number
-          created_at: string
-          distance_meters: number
-          id: string
-          severity: string
-          status: string
-          ticket_id: string
-          title: string
-          upvote_count: number
-        }[]
-      }
+      get_nearby_complaints:
+        | {
+            Args: { p_lat: number; p_lng: number; p_radius_m?: number }
+            Returns: {
+              category_id: number
+              created_at: string
+              distance_meters: number
+              id: string
+              severity: string
+              status: string
+              ticket_id: string
+              title: string
+              upvote_count: number
+            }[]
+          }
+        | {
+            Args: { p_lat: number; p_lng: number; p_radius_m?: number }
+            Returns: {
+              category_id: number
+              created_at: string
+              distance_meters: number
+              id: string
+              severity: string
+              status: string
+              ticket_id: string
+              title: string
+              upvote_count: number
+            }[]
+          }
       increment_upvote_count: {
         Args: { p_complaint_id: string }
         Returns: undefined
@@ -555,11 +851,13 @@ export type Database = {
       }
     }
     Enums: {
+      complaint_source: "citizen" | "system"
       complaint_status:
         | "submitted"
         | "under_review"
         | "assigned"
         | "in_progress"
+        | "pending_closure"
         | "resolved"
         | "rejected"
         | "escalated"
@@ -690,13 +988,18 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
+      complaint_source: ["citizen", "system"],
       complaint_status: [
         "submitted",
         "under_review",
         "assigned",
         "in_progress",
+        "pending_closure",
         "resolved",
         "rejected",
         "escalated",

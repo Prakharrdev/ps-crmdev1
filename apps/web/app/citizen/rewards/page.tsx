@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState } from "react";
-import { 
-  Coins, Ticket, Car, TrainFront, Bus, CreditCard, 
+import {
+  Coins, Ticket, Car, TrainFront, Bus, CreditCard,
   Lock, CheckCircle2, ShoppingCart, TreePine, Zap, Shield, Plus
 } from "lucide-react";
 
@@ -75,12 +75,12 @@ export default function RewardsPage() {
 
   return (
     <div className="flex flex-col h-full bg-gray-50 dark:bg-[#161616] text-gray-900 dark:text-gray-100 overflow-hidden font-sans">
-      
+
 
 
 
       <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6">
-        
+
         {/* PROGRESS PASS SECTION */}
         <section className="mb-8">
           <div className="flex justify-between items-end mb-4">
@@ -93,24 +93,23 @@ export default function RewardsPage() {
           <div className="flex gap-4 overflow-x-auto pb-4 hide-scrollbar">
             {progressPass.map((tier, index) => (
               <div key={tier.level} className="flex flex-col gap-2 min-w-[140px] relative">
-                
+
                 {/* Connecting Line connecting tiers */}
                 {index < progressPass.length - 1 && (
-                  <div className={`absolute top-3 left-1/2 w-full h-1 z-0 ${
-                    tier.status === 'received' 
-                      ? 'bg-green-500' 
+                  <div className={`absolute top-3 left-1/2 w-full h-1 z-0 ${tier.status === 'received'
+                      ? 'bg-green-500'
                       : 'bg-gray-200 dark:bg-[#313541]'
-                  }`} />
+                    }`} />
                 )}
-                
+
                 {/* Level Indicator */}
                 <div className="flex justify-center z-10">
                   <div className={`w-8 h-8 rounded flex items-center justify-center font-bold text-sm outline outline-4 outline-gray-50 dark:outline-[#161616]
-                    ${tier.status === 'received' 
-                        ? 'bg-green-500 text-white dark:text-black' 
-                        : tier.status === 'current' 
-                            ? 'bg-[#C9A84C] text-white dark:text-black' 
-                            : 'bg-gray-200 text-gray-500 dark:bg-[#313541] dark:text-gray-400'
+                    ${tier.status === 'received'
+                      ? 'bg-green-500 text-white dark:text-black'
+                      : tier.status === 'current'
+                        ? 'bg-[#C9A84C] text-white dark:text-black'
+                        : 'bg-gray-200 text-gray-500 dark:bg-[#313541] dark:text-gray-400'
                     }
                   `}>
                     {tier.level}
@@ -119,11 +118,11 @@ export default function RewardsPage() {
 
                 {/* Reward Card */}
                 <div className={`relative flex flex-col items-center justify-between p-3 rounded-lg border h-32 mt-1
-                  ${tier.status === 'received' 
-                      ? 'bg-green-50 border-green-200 shadow-[0_0_15px_rgba(34,197,94,0.1)] dark:bg-[#1D2B24] dark:border-green-500/50' 
-                      : tier.status === 'current' 
-                          ? 'bg-amber-50 border-amber-300 shadow-[0_0_15px_rgba(201,168,76,0.15)] dark:bg-[#2A2315] dark:border-[#C9A84C]/50' 
-                          : 'bg-white border-gray-200 dark:bg-[#1e1e1e] dark:border-[#2a2a2a]'}
+                  ${tier.status === 'received'
+                    ? 'bg-green-50 border-green-200 shadow-[0_0_15px_rgba(34,197,94,0.1)] dark:bg-[#1D2B24] dark:border-green-500/50'
+                    : tier.status === 'current'
+                      ? 'bg-amber-50 border-amber-300 shadow-[0_0_15px_rgba(201,168,76,0.15)] dark:bg-[#2A2315] dark:border-[#C9A84C]/50'
+                      : 'bg-white border-gray-200 dark:bg-[#1e1e1e] dark:border-[#2a2a2a]'}
                 `}>
                   {tier.status === 'locked' && (
                     <div className="absolute top-2 right-2 text-gray-400 dark:text-gray-500">
@@ -135,11 +134,11 @@ export default function RewardsPage() {
                       RECEIVED
                     </div>
                   )}
-                  
+
                   <div className={`mt-2 ${tier.color}`}>
                     {tier.icon}
                   </div>
-                  
+
                   <div className="text-center mt-auto w-full">
                     <div className="text-[12px] font-bold text-gray-900 dark:text-white line-clamp-1 leading-tight">{tier.title}</div>
                     <div className="text-[10px] text-gray-500 dark:text-gray-400 truncate">{tier.subtitle}</div>
@@ -159,41 +158,41 @@ export default function RewardsPage() {
         <section>
           <div className="flex items-center gap-4 mb-4 border-b border-gray-200 dark:border-[#2a2a2a]">
             <h2 className="text-lg font-bold tracking-wide text-gray-900 dark:text-white pb-2 flex-shrink-0">FEATURED REWARDS & VOUCHERS</h2>
-            
+
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {shopItems.map((item) => {
               const isOwned = purchasedItems.has(item.id);
               const canAfford = jsPoints >= item.cost;
-              
+
               return (
-                <div 
-                  key={item.id} 
+                <div
+                  key={item.id}
                   className={`flex items-center gap-4 p-3 rounded-xl border transition-all
-                    ${isOwned 
-                      ? 'bg-green-50 border-green-200 opacity-90 dark:bg-[#1D2B24] dark:border-green-500/30 dark:opacity-80' 
+                    ${isOwned
+                      ? 'bg-green-50 border-green-200 opacity-90 dark:bg-[#1D2B24] dark:border-green-500/30 dark:opacity-80'
                       : 'bg-white border-gray-200 hover:bg-gray-50 hover:border-gray-300 dark:bg-[#1e1e1e] dark:border-[#2a2a2a] dark:hover:bg-[#252525] dark:hover:border-gray-600'}
                   `}
                 >
                   <div className={`p-4 justify-center items-center flex rounded-lg ${item.iconBg} ${item.color}`}>
                     {item.icon}
                   </div>
-                  
+
                   <div className="flex-1 min-w-0">
                     <div className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">{item.category}</div>
                     <div className="text-sm font-bold text-gray-900 dark:text-white line-clamp-1 leading-tight mb-2">
                       {item.title}
                     </div>
-                    
-                    <button 
+
+                    <button
                       onClick={() => handlePurchase(item)}
                       disabled={isOwned || (!canAfford && !isOwned)}
                       className={`flex items-center justify-between w-full px-2 py-1.5 rounded text-xs font-bold transition-colors
-                        ${isOwned 
-                          ? 'bg-transparent text-green-600 dark:text-green-500 cursor-default' 
-                          : canAfford 
-                            ? 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-[#C9A84C]/10 dark:text-[#C9A84C] dark:hover:bg-[#C9A84C]/20 cursor-pointer' 
+                        ${isOwned
+                          ? 'bg-transparent text-green-600 dark:text-green-500 cursor-default'
+                          : canAfford
+                            ? 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-[#C9A84C]/10 dark:text-[#C9A84C] dark:hover:bg-[#C9A84C]/20 cursor-pointer'
                             : 'bg-gray-100 text-gray-400 dark:bg-[#2a2a2a] dark:text-gray-500 cursor-not-allowed'}
                       `}
                     >
@@ -211,9 +210,10 @@ export default function RewardsPage() {
         </section>
 
       </div>
-      
+
       {/* CSS for hiding scrollbar specifically for horizontal lists */}
-      <style dangerouslySetInnerHTML={{__html: `
+      <style dangerouslySetInnerHTML={{
+        __html: `
         .hide-scrollbar::-webkit-scrollbar {
           display: none;
         }

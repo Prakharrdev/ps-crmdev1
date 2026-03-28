@@ -147,7 +147,25 @@ export function useNearbyTickets() {
   }
 
   async function fetchComplaints() {
-    setLoading(true);
+    const localCacheKey = "citizen_nearby_tickets";
+    const cachedData = typeof window !== "undefined" ? localStorage.getItem(localCacheKey) : null;
+    let hasLocalData = false;
+
+    if (cachedData) {
+      try {
+        const parsed = JSON.parse(cachedData) as MappedComplaint[];
+        setAllComplaints(parsed);
+        setVisibleComplaints(applyFilter(parsed, lastCenterRef.current, lastRadiusRef.current));
+        hasLocalData = true;
+        setLoading(false);
+        void loadCitizenUpvotes(parsed.map((item) => item.id));
+      } catch (e) {
+        console.error("Failed to parse cached nearby tickets", e);
+      }
+    } else {
+      setLoading(true);
+    }
+
     try {
       const {
         data: { session },
@@ -161,7 +179,8 @@ export function useNearbyTickets() {
         return;
       }
 
-      const res = await fetch("/api/citizen/nearby", {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const res = await fetch(`${apiUrl}/citizen/nearby`, {
         method: "GET",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -172,50 +191,55 @@ export function useNearbyTickets() {
       const payload = (await res.json()) as { error?: string; items?: Tables<"complaints">[] };
 
       if (!res.ok || !Array.isArray(payload.items)) {
-        setError(payload.error ?? "Failed to load complaints");
+        if (!hasLocalData) setError(payload.error ?? "Failed to load complaints");
         setLoading(false);
         return;
       }
 
-    const data = payload.items;
+      const data = payload.items;
 
-    type Row = Tables<"complaints">;
-    const mapped: MappedComplaint[] = (data as Row[])
-      .map((c) => {
-        const pos = parseLocation(c.location);
-        if (!pos) return null;
-        const normalizedSeverity = normalizeSeverity(c.severity);
-        return {
-          id: c.id,
-          ticket_id: c.ticket_id,
-          title: c.title,
-          description: c.description,
-          // Citizen nearby should mirror generated ticket severity unless backend performs explicit override.
-          severity: normalizedSeverity,
-          effective_severity: normalizedSeverity,
-          lat: pos.lat,
-          lng: pos.lng,
-          photo_urls: c.photo_urls,
-          upvote_count: c.upvote_count,
-          status: c.status,
-          created_at: c.created_at,
-          address_text: c.address_text,
-          ward_name: c.ward_name,
-          category_id: c.category_id,
-          assigned_department: c.assigned_department,
-        };
-      })
-      .filter(Boolean) as MappedComplaint[];
+      type Row = Tables<"complaints">;
+      const mapped: MappedComplaint[] = (data as Row[])
+        .map((c) => {
+          const pos = parseLocation(c.location);
+          if (!pos) return null;
+          const normalizedSeverity = normalizeSeverity(c.severity);
+          return {
+            id: c.id,
+            ticket_id: c.ticket_id,
+            title: c.title,
+            description: c.description,
+            severity: normalizedSeverity,
+            effective_severity: normalizedSeverity,
+            lat: pos.lat,
+            lng: pos.lng,
+            photo_urls: c.photo_urls,
+            upvote_count: c.upvote_count,
+            status: c.status,
+            created_at: c.created_at,
+            address_text: c.address_text,
+            ward_name: c.ward_name,
+            category_id: c.category_id,
+            assigned_department: c.assigned_department,
+          };
+        })
+        .filter(Boolean) as MappedComplaint[];
 
       setAllComplaints(mapped);
-      // Re-apply filter now that data is loaded
       setVisibleComplaints(applyFilter(mapped, lastCenterRef.current, lastRadiusRef.current));
+      
+      if (typeof window !== "undefined") {
+        localStorage.setItem(localCacheKey, JSON.stringify(mapped));
+      }
+
       await loadCitizenUpvotes(mapped.map((item) => item.id));
       setError(null);
       setLoading(false);
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Unknown error occurred";
-      setError(errorMsg || "Failed to load complaints");
+      if (!hasLocalData) {
+        const errorMsg = err instanceof Error ? err.message : "Unknown error occurred";
+        setError(errorMsg || "Failed to load complaints");
+      }
       setLoading(false);
     }
   }

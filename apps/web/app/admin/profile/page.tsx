@@ -6,63 +6,85 @@ import { supabase } from "@/src/lib/supabase"
 import type { Database } from "@/src/types/database.types"
 import { User, Activity, Terminal } from "lucide-react"
 import gsap from "gsap"
-import Rating from "@/components/Rating"
 
 type ComplaintRow = Database["public"]["Tables"]["complaints"]["Row"]
 
 export default function ProfilePage() {
   const router = useRouter()
   const [user, setUser] = useState<any>(null)
-  const [workerData, setWorkerData] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [tickets, setTickets] = useState<ComplaintRow[]>([])
+  const [loadingTickets, setLoadingTickets] = useState(true)
+  const [ticketCount, setTicketCount] = useState(0)
 
   // Edit Profile States
   const [isEditingProfile, setIsEditingProfile] = useState(false)
   const [editData, setEditData] = useState({ fullName: "", username: "" })
   const [isSaving, setIsSaving] = useState(false)
-
+  
   const containerRef = useRef<HTMLDivElement>(null)
   const leftColRef = useRef<HTMLDivElement>(null)
   const emblemRef = useRef<HTMLDivElement>(null)
   const rightBoxesRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
-
+  
   useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true)
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) {
-        setLoading(false)
-        return
-      }
-      setUser(session.user)
+    supabase.auth.getUser().then(({ data }) => {
+      const currentUser = data?.user
+      setUser(currentUser)
 
-      try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
-        const res = await fetch(`${apiUrl}/api/worker/profile`, {
-          headers: { Authorization: `Bearer ${session.access_token}` }
-        })
-        if (res.ok) {
-          const data = await res.json()
-          setWorkerData(data)
-        } else {
-          setError("Failed to load profile data")
+      if (currentUser) {
+        // Fetch global latest Tickets on load for admin
+        supabase
+          .from("complaints")
+          .select("*", { count: 'exact' })
+          .order("created_at", { ascending: false })
+          .limit(3)
+          .then(({ data, count }) => {
+            if (data) setTickets(data)
+            if (count !== null) setTicketCount(count)
+            setLoadingTickets(false)
+          })
+
+        // Real-time subscription to auto-update on new global tickets
+        const channel = supabase
+          .channel(`admin-profile-complaints`)
+          .on(
+            "postgres_changes",
+            {
+              event: "INSERT",
+              schema: "public",
+              table: "complaints",
+            },
+            (payload) => {
+              setTickets((prev) => [payload.new as ComplaintRow, ...prev].slice(0, 3));
+              setTicketCount((prev) => prev + 1);
+            }
+          )
+          .on(
+            "postgres_changes",
+            {
+              event: "UPDATE",
+              schema: "public",
+              table: "complaints",
+            },
+            (payload) => {
+              setTickets((prev) =>
+                prev.map((t) => (t.id === payload.new.id ? (payload.new as ComplaintRow) : t))
+              );
+            }
+          )
+          .subscribe();
+
+        return () => {
+          supabase.removeChannel(channel)
         }
-      } catch (err) {
-        console.error("Fetch error:", err)
-        setError("Network error")
-      } finally {
-        setLoading(false)
       }
-    }
-
-    fetchData()
+    })
   }, [])
 
   useEffect(() => {
     if (!user || !containerRef.current) return;
-
+    
     // Cleanup any existing animations when unmounting
     const ctx = gsap.context(() => {
       const tl = gsap.timeline()
@@ -79,7 +101,7 @@ export default function ProfilePage() {
       // 2. Left column text stagger
       if (leftColRef.current) {
         const leftElements = gsap.utils.toArray(leftColRef.current.children)
-        tl.fromTo(leftElements,
+        tl.fromTo(leftElements, 
           { x: -50, opacity: 0 },
           { x: 0, opacity: 1, stagger: 0.15, duration: 0.6, ease: "power3.out" },
           "-=0.4"
@@ -98,7 +120,7 @@ export default function ProfilePage() {
       // 4. Right boxes slide in
       if (rightBoxesRef.current) {
         const boxes = gsap.utils.toArray(rightBoxesRef.current.children)
-        tl.fromTo(boxes,
+        tl.fromTo(boxes, 
           { x: 50, opacity: 0 },
           { x: 0, opacity: 1, stagger: 0.2, duration: 0.6, ease: "power3.out" },
           "-=0.6"
@@ -106,26 +128,26 @@ export default function ProfilePage() {
       }
 
       // 5. Bottom terminal lines stagger
-      if (bottomRef.current && !loading) {
+      if (bottomRef.current && !loadingTickets) {
         const bottomElements = gsap.utils.toArray(bottomRef.current.children)
-        tl.fromTo(bottomElements,
+        tl.fromTo(bottomElements, 
           { y: 30, opacity: 0 },
           { y: 0, opacity: 1, stagger: 0.15, duration: 0.5, ease: "power2.out" },
           "-=0.4"
         )
       }
-    }, [user, loading]) // re-run animation slightly when tickets finally load if delayed
+    }, [user, loadingTickets]) // re-run animation slightly when tickets finally load if delayed
 
     return () => ctx.revert()
-  }, [user, loading])
+  }, [user, loadingTickets])
 
   // Interactive click handler for UI elements
   const handleInteraction = (e: React.MouseEvent<HTMLElement>) => {
     // Only fire animation on the exact targeted button, unless it's an input event
     if ((e.target as HTMLElement).tagName.toLowerCase() === 'input') return;
-
+    
     const el = e.currentTarget
-
+    
     // Quick flash/glitch effect on interaction
     gsap.timeline()
       .to(el, { scale: 0.95, duration: 0.05 })
@@ -135,18 +157,18 @@ export default function ProfilePage() {
   }
 
   // Handle clicking a specific ticket link
-  const handleTicketClick = (e: React.MouseEvent<HTMLElement>, ticketId: string) => {
+  const handleTicketClick = (e: React.MouseEvent<HTMLElement>, ticketId: string, ticketShortId?: string) => {
     e.stopPropagation()
     handleInteraction(e)
-
+    
     // Wait for the glitch animation to visually complete, then safely route user
     setTimeout(() => {
-      router.push(`/worker/dashboard`)
+      router.push(`/admin/complaints?search=${ticketShortId || ticketId}&highlight=${ticketId}`)
     }, 350)
   }
 
   // Handlers for Profile Editing
-  const nameDisplay = user?.user_metadata?.full_name ?? user?.email?.split('@')[0] ?? 'Field Worker'
+  const nameDisplay = user?.user_metadata?.full_name ?? user?.email?.split('@')[0] ?? 'System Admin'
   const emailDisplay = user?.email || ""
   const usernameDisplay = user?.user_metadata?.username ?? `${nameDisplay.split(' ')[0]}_user`
 
@@ -170,16 +192,16 @@ export default function ProfilePage() {
 
     setIsSaving(true)
     const { data, error } = await supabase.auth.updateUser({
-      data: {
+      data: { 
         full_name: editData.fullName,
         username: editData.username.replace(/[^a-zA-Z0-9_]/g, '_') // sanitize username
       }
     })
-
+    
     if (!error && data?.user) {
       setUser(data.user)
     }
-
+    
     // Delay hiding the form to let the animation play out
     setTimeout(() => {
       setIsEditingProfile(false)
@@ -187,7 +209,7 @@ export default function ProfilePage() {
     }, 300)
   }
 
-  if (loading) {
+  if (!user) {
     return (
       <div className="flex items-center justify-center h-full bg-[#fcfbf9] dark:bg-[#0c0c0c] font-mono">
         <div className="text-gray-800 dark:text-[#f59e0b] animate-pulse text-xl shadow-none dark:shadow-[0_0_10px_#f59e0b]">
@@ -279,53 +301,53 @@ export default function ProfilePage() {
   `
 
   // Derived stats
-  const pendingTickets = workerData?.complaints?.filter((t: any) => t.status !== 'resolved' && t.status !== 'rejected').length || 0
+  const pendingTickets = tickets.filter(t => t.status !== 'resolved' && t.status !== 'rejected').length
 
   return (
     <div className="h-full w-full relative overflow-y-auto overflow-x-hidden terminal-container p-4 sm:p-8 font-mono text-xs sm:text-sm md:text-base flex flex-col font-bold" ref={containerRef}>
       <style>{styles}</style>
       <div className="scanlines flicker"></div>
-
+      
       {/* Content wrapper with z-index above scanlines */}
       <div className="relative z-20 flex flex-col min-h-full glow-amber max-w-7xl mx-auto w-full">
-
+        
         {/* Top Section */}
         <div className="flex flex-col lg:flex-row gap-8 lg:gap-12 mb-8 cursor-default">
-
+          
           {/* Left Column: Intro */}
           <div className="flex-1 flex flex-col justify-center gap-4" ref={leftColRef}>
             <button className="text-xl sm:text-3xl tracking-widest interactive-item w-fit px-2 py-1 rounded text-left" onClick={handleInteraction}>
               Hi there,
             </button>
-
-            <button
+            
+            <button 
               className="amber-highlight px-4 sm:px-6 py-2 text-3xl sm:text-4xl md:text-5xl font-extrabold text-left w-full md:w-fit uppercase tracking-widest hover:scale-[1.02] transition-transform active:scale-95 break-words"
               onClick={handleInteraction}
             >
               I'm <br className="md:hidden" />{nameDisplay}
             </button>
-
+            
             <div className="space-y-3 text-lg sm:text-xl md:text-2xl pl-5 border-l-4 border-[#f59e0b]/60 py-2">
               <button className="flex items-center gap-3 interactive-item w-full text-left px-2 py-1 rounded" onClick={handleInteraction}>
-                <span className="text-gray-800 dark:text-[#f59e0b] w-2 h-2 bg-[#C9A84C] dark:bg-[#f59e0b] shadow-none dark:shadow-[0_0_8px_#f59e0b]"></span>
-                Field Worker
+                <span className="text-gray-800 dark:text-[#f59e0b] w-2 h-2 bg-[#C9A84C] dark:bg-[#f59e0b] shadow-none dark:shadow-[0_0_8px_#f59e0b]"></span> 
+                System Admin
               </button>
               <button className="flex items-center gap-3 interactive-item w-full text-left px-2 py-1 rounded" onClick={handleInteraction}>
-                <span className="text-gray-800 dark:text-[#f59e0b] w-2 h-2 bg-[#C9A84C] dark:bg-[#f59e0b] shadow-none dark:shadow-[0_0_8px_#f59e0b]"></span>
-                Worker Portal
+                <span className="text-gray-800 dark:text-[#f59e0b] w-2 h-2 bg-[#C9A84C] dark:bg-[#f59e0b] shadow-none dark:shadow-[0_0_8px_#f59e0b]"></span> 
+                Admin Portal
               </button>
             </div>
-
+            
             <button className="mt-4 pt-4 interactive-item px-2 py-2 rounded max-w-md text-left cursor-crosshair" onClick={handleInteraction}>
               <div className="mb-2 text-lg">Welcome to Jan Samadhan</div>
               <div className="text-gray-700 dark:text-[#f59e0b]/80">{`>>`} Scroll or click items to interact</div>
             </button>
           </div>
-
+          
           {/* Center Column: Emblem */}
           <div className="hidden lg:flex flex-col items-center justify-center relative w-64 lg:w-80 flex-shrink-0" ref={emblemRef}>
             <div className="absolute inset-0 bg-[#C9A84C]/10 dark:bg-[#f59e0b]/10 blur-3xl rounded-full pointer-events-none"></div>
-            <button
+            <button 
               className="w-full aspect-[3/4] max-h-[400px] emblem-mask hover:scale-105 transition-transform duration-500 cursor-pointer dark:cursor-crosshair"
               onClick={handleInteraction}
               style={{
@@ -341,20 +363,20 @@ export default function ProfilePage() {
             />
 
           </div>
-
+          
           {/* Right Column: Stats & Details */}
           <div className="flex-1 flex flex-col gap-6 justify-center" ref={rightBoxesRef}>
-
+            
             {/* Profile Details Box */}
             <div className="glow-border p-5 rounded-lg bg-white dark:bg-black/40 backdrop-blur-md text-left w-full relative overflow-hidden group cursor-default">
               <div className="absolute inset-0 bg-[#C9A84C]/5 dark:bg-[#f59e0b]/5 translate-y-[100%] group-hover:translate-y-0 transition-transform duration-300 pointer-events-none"></div>
-
+              
               <div className="relative z-10 flex justify-between items-center mb-5 border-b-2 border-gray-200 dark:border-[#f59e0b]/40 pb-3">
                 <div className="flex items-center gap-3 font-bold text-lg sm:text-xl uppercase tracking-wider">
                   <User size={24} /> PROFILE DETAILS
                 </div>
               </div>
-
+              
               <div className="relative z-10 space-y-4">
                 {/* Full Name Row */}
                 <div className="flex flex-col sm:flex-row sm:justify-between border-b border-[#C9A84C] dark:border-[#f59e0b]/20 pb-2">
@@ -362,16 +384,16 @@ export default function ProfilePage() {
                   {!isEditingProfile ? (
                     <span className="font-bold uppercase truncate">{nameDisplay}</span>
                   ) : (
-                    <input
-                      type="text"
+                    <input 
+                      type="text" 
                       value={editData.fullName}
-                      onChange={(e) => setEditData({ ...editData, fullName: e.target.value })}
+                      onChange={(e) => setEditData({...editData, fullName: e.target.value})}
                       className="bg-[#C9A84C]/10 dark:bg-[#f59e0b]/10 border-b border-[#C9A84C] dark:border-[#f59e0b] text-gray-800 dark:text-[#f59e0b] focus:outline-none focus:bg-[#C9A84C]/20 dark:focus:bg-[#f59e0b]/20 px-2 py-1 font-bold uppercase w-full sm:w-1/2 text-left sm:text-right rounded-t transition-colors"
                       placeholder="ENTER FULL NAME"
                     />
                   )}
                 </div>
-
+                
                 {/* Username Row */}
                 <div className="flex flex-col sm:flex-row sm:justify-between border-b border-[#C9A84C] dark:border-[#f59e0b]/20 pb-2">
                   <span className="text-gray-600 dark:text-[#f59e0b]/70 tracking-wider pt-1">USERNAME:</span>
@@ -380,10 +402,10 @@ export default function ProfilePage() {
                   ) : (
                     <div className="flex w-full sm:w-1/2 justify-start sm:justify-end items-center">
                       <span className="mr-1 pt-1 opacity-70">[</span>
-                      <input
-                        type="text"
+                      <input 
+                        type="text" 
                         value={editData.username}
-                        onChange={(e) => setEditData({ ...editData, username: e.target.value.replace(/\s+/g, '_').toLowerCase() })}
+                        onChange={(e) => setEditData({...editData, username: e.target.value.replace(/\s+/g, '_').toLowerCase()})}
                         className="bg-[#C9A84C]/10 dark:bg-[#f59e0b]/10 border-b border-[#C9A84C] dark:border-[#f59e0b] text-gray-800 dark:text-[#f59e0b] focus:outline-none focus:bg-[#C9A84C]/20 dark:focus:bg-[#f59e0b]/20 px-2 py-1 font-bold w-[85%] text-left sm:text-right rounded-t transition-colors"
                         placeholder="ENTER USERNAME"
                       />
@@ -402,7 +424,7 @@ export default function ProfilePage() {
               {/* Edit Action Buttons */}
               <div className="relative z-10 mt-6 pt-4 flex justify-end gap-3">
                 {!isEditingProfile ? (
-                  <button
+                  <button 
                     onClick={handleEditProfile}
                     className="amber-highlight px-5 py-2 font-bold tracking-widest text-sm sm:text-base uppercase hover:scale-[1.02] transition-transform active:scale-95 rounded shadow-sm dark:shadow-[0_0_15px_rgba(245,158,11,0.5)]"
                   >
@@ -410,13 +432,13 @@ export default function ProfilePage() {
                   </button>
                 ) : (
                   <>
-                    <button
+                    <button 
                       onClick={handleCancelEdit}
                       className="border border-[#C9A84C] dark:border-[#f59e0b] text-gray-800 dark:text-[#f59e0b] hover:bg-[#C9A84C]/10 dark:hover:bg-[#f59e0b]/10 px-5 py-2 font-bold tracking-widest text-sm sm:text-base uppercase transition-colors rounded"
                     >
                       [ CANCEL ]
                     </button>
-                    <button
+                    <button 
                       onClick={handleSaveProfile}
                       disabled={isSaving}
                       className="bg-green-600 text-[#0c0c0c] px-5 py-2 font-extrabold tracking-widest text-sm sm:text-base uppercase hover:scale-[1.02] transition-transform active:scale-95 disabled:opacity-50 rounded shadow-[0_0_15px_rgba(34,197,94,0.4)]"
@@ -429,7 +451,7 @@ export default function ProfilePage() {
             </div>
 
             {/* Jan Samadhan Stats Box */}
-            <button
+            <button 
               className="glow-border p-5 rounded-lg bg-white dark:bg-black/40 backdrop-blur-md interactive-item text-left w-full relative overflow-hidden group"
               onClick={handleInteraction}
             >
@@ -441,66 +463,55 @@ export default function ProfilePage() {
               </div>
               <div className="relative z-10 space-y-4">
                 <div className="flex justify-between border-b border-[#C9A84C] dark:border-[#f59e0b]/20 pb-2">
-                  <span className="text-gray-600 dark:text-[#f59e0b]/70">ISSUES RESOLVED:</span>
-                  <span className="font-bold">{workerData?.workerProfile?.total_resolved ?? 0}</span>
+                  <span className="text-gray-600 dark:text-[#f59e0b]/70">ISSUES REPORTED:</span>
+                  <span className="font-bold">{loadingTickets ? "..." : ticketCount}</span>
                 </div>
                 <div className="flex justify-between border-b border-[#C9A84C] dark:border-[#f59e0b]/20 pb-2">
-                  <span className="text-gray-600 dark:text-[#f59e0b]/70">PENDING ASSIGNMENTS:</span>
-                  <span className="font-bold">{workerData?.complaints?.filter((t: any) => t.status === 'assigned' || t.status === 'in_progress').length ?? 0}</span>
+                  <span className="text-gray-600 dark:text-[#f59e0b]/70">RESOLUTIONS PENDING:</span>
+                  <span className="font-bold">{loadingTickets ? "..." : pendingTickets}</span>
                 </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-600 dark:text-[#f59e0b]/70">AVERAGE RATING:</span>
-                  <div className="flex flex-col items-end gap-1">
-                    {workerData?.workerProfile?.average_rating > 0 ? (
-                      <>
-                        <Rating initialRating={workerData.workerProfile.average_rating} readonly />
-                        <span className="font-bold text-xs opacity-80">
-                          {workerData.workerProfile.average_rating.toFixed(1)} / 5.0
-                        </span>
-                      </>
-                    ) : (
-                      <span className="font-bold">NO RATINGS</span>
-                    )}
-                  </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600 dark:text-[#f59e0b]/70">SATISFACTION RATING:</span>
+                  <span className="font-bold">4.8/5.0</span>
                 </div>
               </div>
             </button>
 
           </div>
         </div>
-
+        
         {/* Bottom Section: Recent Activity & Terminal Prompt */}
         <div className="w-full flex-grow flex flex-col gap-4">
-          <div
+          <div 
             className="glow-border p-5 rounded-lg bg-white dark:bg-black/40 backdrop-blur-md flex flex-col mb-4 interactive-item text-left relative overflow-hidden group flex-shrink-0"
             onClick={handleInteraction}
           >
-            <div className="absolute inset-0 bg-[#C9A84C]/5 dark:bg-[#f59e0b]/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
-            <div className="relative z-10 flex justify-between items-center mb-4 border-b-2 border-gray-200 dark:border-[#f59e0b]/40 pb-3 w-full">
-              <div className="flex items-center gap-3 font-bold text-lg sm:text-xl uppercase tracking-wider w-full">
-                RECENT TICKET ACTIVITY
+             <div className="absolute inset-0 bg-[#C9A84C]/5 dark:bg-[#f59e0b]/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
+             <div className="relative z-10 flex justify-between items-center mb-4 border-b-2 border-gray-200 dark:border-[#f59e0b]/40 pb-3 w-full">
+                <div className="flex items-center gap-3 font-bold text-lg sm:text-xl uppercase tracking-wider w-full">
+                  RECENT TICKET ACTIVITY
+                </div>
+                <div className="text-gray-500 dark:text-[#f59e0b]/60"><Terminal size={20} /></div>
               </div>
-              <div className="text-gray-500 dark:text-[#f59e0b]/60"><Terminal size={20} /></div>
-            </div>
-            <div className="relative z-10 space-y-3 font-mono text-sm sm:text-base leading-relaxed" ref={bottomRef}>
-              {loading ? (
-                <div className="text-gray-400 dark:text-[#f59e0b]/50 animate-pulse tracking-widest">{">"} SEARCHING DATABASE...</div>
-              ) : !workerData?.complaints?.length ? (
-                <div className="text-gray-400 dark:text-[#f59e0b]/50 tracking-widest">{">"} NO TICKETS FOUND IN QUERY.</div>
-              ) : (
-                workerData.complaints.slice(0, 3).map((ticket:any, i:number) => (
-                  <button key={ticket.id} onClick={(e) => handleTicketClick(e, ticket.id)} className={`flex flex-wrap gap-x-2 gap-y-1 hover:bg-[#C9A84C]/10 dark:hover:bg-[#f59e0b]/10 p-1 -m-1 rounded transition-colors w-full text-left interactive-item ${i > 0 && ticket.status !== 'submitted' && ticket.status !== 'in_progress' ? 'opacity-80' : ''}`}>
-                    <span className="text-gray-800 dark:text-[#f59e0b] mr-2 flex-shrink-0">{'>'} TICKET #{ticket.ticket_id || ticket.id.slice(0, 6)}:</span>
-                    <span className="text-gray-700 dark:text-[#f59e0b]/80 uppercase">Status - {ticket.status?.replace('_', ' ') || "unknown"}</span>
-                    <span className="hidden sm:inline"> | </span>
-                    <span className="w-full sm:w-auto">{ticket.title}</span>
-                  </button>
-                ))
-              )}
-            </div>
+              <div className="relative z-10 space-y-3 font-mono text-sm sm:text-base leading-relaxed" ref={bottomRef}>
+                {loadingTickets ? (
+                  <div className="text-gray-400 dark:text-[#f59e0b]/50 animate-pulse tracking-widest">{">"} SEARCHING DATABASE...</div>
+                ) : tickets.length === 0 ? (
+                  <div className="text-gray-400 dark:text-[#f59e0b]/50 tracking-widest">{">"} NO TICKETS FOUND IN QUERY.</div>
+                ) : (
+                  tickets.map((ticket, i) => (
+                    <button key={ticket.id} onClick={(e) => handleTicketClick(e, ticket.id, ticket.ticket_id)} className={`flex flex-wrap gap-x-2 gap-y-1 hover:bg-[#C9A84C]/10 dark:hover:bg-[#f59e0b]/10 p-1 -m-1 rounded transition-colors w-full text-left interactive-item ${i > 0 && ticket.status !== 'submitted' && ticket.status !== 'in_progress' ? 'opacity-80' : ''}`}>
+                      <span className="text-gray-800 dark:text-[#f59e0b] mr-2 flex-shrink-0">{'>'} TICKET #{ticket.ticket_id || ticket.id.slice(0,6)}:</span>
+                      <span className="text-gray-700 dark:text-[#f59e0b]/80 uppercase">Status - {ticket.status?.replace('_', ' ') || "unknown"}</span>
+                      <span className="hidden sm:inline"> | </span>
+                      <span className="w-full sm:w-auto">{ticket.title}</span>
+                    </button>
+                  ))
+                )}
+              </div>
           </div>
 
-          <button
+          <button 
             className="mt-auto text-xl sm:text-3xl font-bold py-2 tracking-widest flex items-center w-fit interactive-item px-4 rounded"
             onClick={handleInteraction}
           >

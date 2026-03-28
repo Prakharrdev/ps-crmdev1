@@ -184,6 +184,7 @@ function transformPayload(payload: AdminComplaintsPayload) {
 
 export default function TicketsPage() {
   const [search, setSearch] = useState("")
+  const [highlightTicketId, setHighlightTicketId] = useState<string | null>(null)
   const [filters, setFilters] = useState<TicketFiltersState>(initialFilters)
   const [tickets, setTickets] = useState<TicketRecord[]>([])
   const [page, setPage] = useState(1)
@@ -395,6 +396,19 @@ export default function TicketsPage() {
     return () => clearInterval(timer)
   }, [])
 
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search)
+      const hId = params.get("highlight")
+      const sText = params.get("search")
+      if (sText) setSearch(sText)
+      if (hId) {
+        setHighlightTicketId(hId)
+        setTimeout(() => setHighlightTicketId(null), 3000)
+      }
+    }
+  }, [])
+
   const totalPages = useMemo(() => {
     if (totalCount <= 0) return 1
     return Math.ceil(totalCount / PAGE_SIZE)
@@ -430,6 +444,7 @@ export default function TicketsPage() {
         onView={handleView}
         onAssign={handleOpenAssign}
         onEscalate={handleEscalate}
+        highlightTicketId={highlightTicketId}
       />
 
       <Pagination page={page} totalPages={totalPages} totalCount={totalCount} pageSize={PAGE_SIZE} onPageChange={setPage} />

@@ -2,15 +2,16 @@
 
 import { Suspense, useEffect, useState, useRef } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowUp, Search, X, ChevronDown } from "lucide-react";
+import { ArrowUp, Search, X, ChevronDown, Star } from "lucide-react";
 import { supabase } from "@/src/lib/supabase";
 import type { Database } from "@/src/types/database.types";
+import Rating from "@/components/Rating";
 
 type ComplaintRow = Database["public"]["Tables"]["complaints"]["Row"];
 type TicketListRow = Pick<
   ComplaintRow,
   "id" | "ticket_id" | "title" | "address_text" | "assigned_department" | "status" | "created_at" | "upvote_count"
->;
+> & { rating?: number | null; reviews?: { rating: number } | { rating: number }[] | null };
 
 function formatStatus(status: string): string {
   return status
@@ -227,7 +228,15 @@ function CitizenTicketsPageContent() {
         });
 
         if (!res.ok) throw new Error(`API error: ${res.status}`);
-        const { source, tickets: incoming } = await res.json();
+        const { source, tickets: incomingRaw } = await res.json();
+        
+        // Flatten reviews(rating)
+        const incoming = incomingRaw.map((t: any) => {
+          const rating = t.reviews 
+            ? (Array.isArray(t.reviews) ? t.reviews[0]?.rating : (t.reviews as any).rating)
+            : t.rating;
+          return { ...t, rating };
+        });
 
         if (!isActive) return;
 
@@ -535,7 +544,7 @@ function CitizenTicketsPageContent() {
 
         <div className="overflow-x-auto flex-1 min-h-0 flex flex-col">
           <div className="min-w-[980px] flex flex-col flex-1 min-h-0">
-            <div className="sticky top-0 z-10 grid grid-cols-[150px_2fr_2fr_1.2fr_1fr_1fr_100px] gap-3 border-b border-gray-200 bg-gray-50 px-5 py-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:border-[#2a2a2a] dark:bg-[#1e1e1e] dark:text-gray-400">
+            <div className="sticky top-0 z-10 grid grid-cols-[150px_2fr_2fr_1.2fr_1fr_1fr_100px_150px] gap-3 border-b border-gray-200 bg-gray-50 px-5 py-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:border-[#2a2a2a] dark:bg-[#1e1e1e] dark:text-gray-400">
               <span>Ticket ID</span>
               <span>Issue Title</span>
               <span>Locality / Address</span>
@@ -543,6 +552,7 @@ function CitizenTicketsPageContent() {
               <span>Status</span>
               <span>Reported Time</span>
               <span className="text-right">Upvotes</span>
+              <span className="text-center">Action / Rating</span>
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto">
@@ -565,10 +575,10 @@ function CitizenTicketsPageContent() {
               {!loading && !error && filteredTickets.length > 0 && (
                 <ul className="divide-y divide-gray-100 dark:divide-[#2a2a2a]">
                   {filteredTickets.map((ticket) => (
-                    <li
-                      key={ticket.id}
-                      ref={ticket.id === activeHighlight ? highlightedRef : null}
-                      className={`grid grid-cols-[150px_2fr_2fr_1.2fr_1fr_1fr_100px] gap-3 px-5 py-4 text-sm text-gray-700 transition-all duration-1000 dark:text-gray-300 dark:hover:bg-[#1e1e1e] ${
+                      <li
+                        key={ticket.id}
+                        ref={ticket.id === activeHighlight ? highlightedRef : null}
+                        className={`grid grid-cols-[150px_2fr_2fr_1.2fr_1fr_1fr_100px_150px] gap-3 px-5 py-4 text-sm text-gray-700 transition-all duration-1000 dark:text-gray-300 dark:hover:bg-[#1e1e1e] ${
                         ticket.id === activeHighlight
                           ? "bg-purple-100/50 shadow-[0_0_20px_rgba(168,85,247,0.4)] z-10 relative dark:bg-purple-900/40"
                           : "hover:bg-gray-50"
@@ -604,6 +614,54 @@ function CitizenTicketsPageContent() {
                         <ArrowUp size={14} className="text-gray-400 dark:text-gray-500" />
                         {ticket.upvote_count ?? 0}
                       </span>
+
+                      <div className="flex items-center justify-center">
+                        {ticket.status === "resolved" ? (
+                          <div className="flex flex-col items-center gap-1">
+                            <Rating 
+                              initialRating={ticket.rating ?? undefined} 
+                              onRate={async (r) => {
+                                try {
+                                  // 1. Get token
+                                  const { data: { session } } = await supabase.auth.getSession();
+                                  const token = session?.access_token;
+                                  if (!token) throw new Error("No session");
+
+                                  // 2. POST to review endpoint
+                                  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+                                  const res = await fetch(`${apiUrl}/api/complaints/review`, {
+                                    method: "POST",
+                                    headers: {
+                                      "Content-Type": "application/json",
+                                      "Authorization": `Bearer ${token}`
+                                    },
+                                    body: JSON.stringify({
+                                      complaint_id: ticket.id,
+                                      rating: r
+                                    })
+                                  });
+
+                                  if (res.ok) {
+                                    // Update locally for instant feedback
+                                    setTickets(prev => prev.map(t => 
+                                      t.id === ticket.id ? { ...t, rating: r } : t
+                                    ));
+                                  } else {
+                                    const err = await res.json();
+                                    alert(err.detail || "Failed to submit rating.");
+                                  }
+                                } catch (err) {
+                                  console.error("Rating submission error:", err);
+                                  alert("An error occurred. Check console for details.");
+                                }
+                              }} 
+                            />
+                            <span className="text-[10px] text-gray-400">Rate your experience</span>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-400 italic">Pending resolution</span>
+                        )}
+                      </div>
                     </li>
                   ))}
                 </ul>

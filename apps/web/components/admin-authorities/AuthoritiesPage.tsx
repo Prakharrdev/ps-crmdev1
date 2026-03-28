@@ -65,6 +65,9 @@ export default function AuthoritiesPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [now, setNow] = useState(() => new Date())
+
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+
   const [viewAuthority, setViewAuthority] = useState<AuthorityRecord | null>(null)
   const [assignAuthority, setAssignAuthority] = useState<AuthorityRecord | null>(null)
   const [departmentDraft, setDepartmentDraft] = useState("")
@@ -183,11 +186,11 @@ export default function AuthoritiesPage() {
     }
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
       const response = await fetch(`${apiUrl}/api/admin/authorities`, {
         method: "GET",
         headers: { Authorization: `Bearer ${session.access_token}` },
       })
+
 
       const payload = (await response.json().catch(() => null)) as {
         error?: string
@@ -298,7 +301,7 @@ export default function AuthoritiesPage() {
       return
     }
 
-    const response = await fetch("/api/admin/authorities", {
+    const response = await fetch(`${apiUrl}/api/admin/authorities`, {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
@@ -306,6 +309,7 @@ export default function AuthoritiesPage() {
       },
       body: JSON.stringify({ authority_id: assignAuthority.id, department: departmentDraft }),
     })
+
 
     const payload = (await response.json().catch(() => null)) as { error?: string } | null
 
@@ -362,7 +366,7 @@ export default function AuthoritiesPage() {
       return
     }
 
-    const response = await fetch("/api/admin/authorities", {
+    const response = await fetch(`${apiUrl}/api/admin/authorities`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -377,6 +381,7 @@ export default function AuthoritiesPage() {
         department,
       }),
     })
+
 
     const payload = (await response.json().catch(() => null)) as { error?: string } | null
 

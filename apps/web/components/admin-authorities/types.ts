@@ -17,6 +17,8 @@ export type AuthorityRecord = {
   workersCount: number
   categories: string[]
   workload: WorkloadLevel
+  averageRating?: number
+  totalReviews?: number
 }
 
 export type ComplaintAssignmentRow = {
@@ -42,6 +44,8 @@ export type AuthorityProfileRow = {
 export type WorkerProfileRow = {
   worker_id: string
   department: string
+  average_rating?: number | null
+  total_reviews?: number | null
 }
 
 export type CategoryRow = {

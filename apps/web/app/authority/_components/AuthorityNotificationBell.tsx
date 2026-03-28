@@ -210,7 +210,7 @@ export default function AuthorityNotificationBell() {
         type="button"
         onClick={() => setOpen(prev => !prev)}
         aria-label="Notifications"
-        className="relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-gray-300 bg-white text-gray-700 shadow-sm hover:bg-gray-50 transition-colors dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
+        className="relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-700 shadow-sm transition-colors hover:bg-gray-50 dark:border-[#2a2a2a] dark:bg-[#1e1e1e] dark:text-gray-300 dark:hover:bg-[#2a2a2a]"
       >
         <Bell size={18} />
         {unreadCount > 0 && (
@@ -220,10 +220,10 @@ export default function AuthorityNotificationBell() {
 
       {/* Dropdown panel */}
       {open && (
-        <div ref={panelRef} className="absolute right-0 z-[60] mt-2 w-[400px] overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-900 origin-top-right">
+        <div ref={panelRef} className="absolute right-0 z-[60] mt-2 w-[400px] origin-top-right overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl dark:border-[#2a2a2a] dark:bg-[#1e1e1e]">
 
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-gray-800">
+          <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-[#2a2a2a]">
             <div>
               <p className="text-sm font-bold text-gray-900 dark:text-white">Notifications</p>
               <p className="text-[11px] text-gray-400">{unreadCount > 0 ? `${unreadCount} unread` : 'All caught up'}</p>
@@ -237,13 +237,13 @@ export default function AuthorityNotificationBell() {
           </div>
 
           {/* Kind filter pills */}
-          <div className="flex gap-1.5 overflow-x-auto border-b border-gray-100 px-3 py-2 dark:border-gray-800">
+          <div className="flex gap-1.5 overflow-x-auto border-b border-gray-100 px-3 py-2 dark:border-[#2a2a2a]">
             {(['all', 'sla_breach', 'escalation', 'new_complaint', 'resolved', 'status_change'] as const).map(k => (
               <button key={k} onClick={() => setFilter(k)}
                 className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold capitalize transition-colors
                   ${filter === k
                     ? 'bg-[#b4725a] text-white'
-                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400'}`}>
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-[#2a2a2a] dark:text-gray-300 dark:hover:bg-[#333333]'}`}>
                 {k === 'all' ? 'All' : KIND_CONFIG[k].label}
               </button>
             ))}
@@ -254,11 +254,11 @@ export default function AuthorityNotificationBell() {
             {loading ? (
               <div>
                 {[...Array(5)].map((_, i) => (
-                  <div key={i} className="flex animate-pulse gap-3 border-b border-gray-50 p-3 last:border-0 dark:border-gray-800">
-                    <div className="h-8 w-8 shrink-0 rounded-full bg-gray-100 dark:bg-gray-800" />
+                  <div key={i} className="flex animate-pulse gap-3 border-b border-gray-50 p-3 last:border-0 dark:border-[#2a2a2a]">
+                    <div className="h-8 w-8 shrink-0 rounded-full bg-gray-100 dark:bg-[#2a2a2a]" />
                     <div className="flex-1 space-y-1.5 py-1">
-                      <div className="h-2.5 w-1/2 rounded-md bg-gray-100 dark:bg-gray-800" />
-                      <div className="h-2 w-3/4 rounded-md bg-gray-100 dark:bg-gray-800" />
+                      <div className="h-2.5 w-1/2 rounded-md bg-gray-100 dark:bg-[#2a2a2a]" />
+                      <div className="h-2 w-3/4 rounded-md bg-gray-100 dark:bg-[#2a2a2a]" />
                     </div>
                   </div>
                 ))}
@@ -273,12 +273,12 @@ export default function AuthorityNotificationBell() {
                 const isRead = readSet.has(n.id);
                 return (
                   <div key={n.id} onClick={() => { if (!isRead) markRead(n.id); }}
-                    className={`notif-item flex cursor-pointer gap-3 p-3 transition-colors hover:bg-gray-50/60 dark:hover:bg-gray-800/50
-                      ${idx > 0 ? 'border-t border-gray-50 dark:border-gray-800' : ''}
+                    className={`notif-item flex cursor-pointer gap-3 p-3 transition-colors hover:bg-gray-50/60 dark:hover:bg-[#2a2a2a]/70
+                      ${idx > 0 ? 'border-t border-gray-50 dark:border-[#2a2a2a]' : ''}
                       ${!isRead
                         ? n.kind === 'sla_breach'  ? 'bg-red-50/40 dark:bg-red-950/20'
                         : n.kind === 'escalation'  ? 'bg-orange-50/30 dark:bg-orange-950/20'
-                        : 'bg-[#fdf8f6] dark:bg-gray-800/40'
+                        : 'bg-[#fdf8f6] dark:bg-[#2a2a2a]/60'
                         : ''}`}>
                     <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-transform duration-300 hover:scale-110 ${cfg.pill.split(' ')[0]}`}>
                       {cfg.icon}

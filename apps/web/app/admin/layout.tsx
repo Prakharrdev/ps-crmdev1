@@ -116,7 +116,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
       {/* Main content area — flex-1 fills remaining space naturally */}
       <div className="flex-1 flex flex-col min-h-0 min-w-0 max-w-full overflow-x-hidden">
-        {/* Fixed Header — edge to edge */}
+        {/*
+     - [/] Step 17: Privacy Policy & Terms Pages <!-- id: 170 -->
+    - [x] Create Implementation Plan <!-- id: 171 -->
+    - [ ] Implement `privacy/page.tsx` with premium design <!-- id: 172 -->
+    - [ ] Implement `terms/page.tsx` with premium design <!-- id: 173 -->
+    - [ ] Update `MegaFooter.tsx` with production links <!-- id: 174 -->
+    - [ ] Verify navigation and responsiveness <!-- id: 175 -->
+
+- [x] Step 11: Backend: Status-Based Spatial Dedup <!-- id: 125 -->
+        */}
         <header className="sticky top-0 z-[2100] bg-white dark:bg-[#1a1a1a] border-b border-gray-200 dark:border-[#2a2a2a] shadow-sm">
           <div className="flex items-center justify-between gap-4 px-4 sm:px-6 py-4 min-w-0 max-w-full">
             {/* Left side — Hamburger and Title */}
@@ -167,6 +176,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                       </p>
                       <p className="text-[11px] text-gray-400">Admin</p>
                     </div>
+                    <a
+                      href="/admin/profile"
+                      onClick={() => setProfileOpen(false)}
+                      className="flex w-full items-center gap-3 px-4 py-3 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-[#2a2a2a]"
+                    >
+                      <UserCircle2 size={15} />
+                      My Profile
+                    </a>
                     <button
                       type="button"
                       onClick={handleLogout}

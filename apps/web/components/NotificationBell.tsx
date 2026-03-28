@@ -174,14 +174,14 @@ export default function NotificationBell({ className }: NotificationBellProps) {
         type="button"
         onClick={toggleOpen}
         aria-label="Notifications"
-        className="relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-gray-300 bg-white text-gray-700 shadow-sm hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
+        className="relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-700 shadow-sm transition-colors hover:bg-gray-50 dark:border-[#2a2a2a] dark:bg-[#1e1e1e] dark:text-gray-300 dark:hover:bg-[#2a2a2a]"
       >
         <Bell size={18} />
         {unreadCount > 0 ? <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-red-500" /> : null}
       </button>
 
       {open ? (
-        <div className="absolute right-0 z-[60] mt-2 w-80 rounded-xl border border-gray-200 bg-white p-4 text-sm text-gray-700 shadow-lg dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200">
+        <div className="absolute right-0 z-[60] mt-2 w-80 rounded-xl border border-gray-200 bg-white p-4 text-sm text-gray-700 shadow-lg dark:border-[#2a2a2a] dark:bg-[#1e1e1e] dark:text-gray-300">
           <div className="mb-3 flex items-center justify-between">
             <p className="font-semibold text-gray-900 dark:text-gray-100">Notifications</p>
             <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -196,9 +196,9 @@ export default function NotificationBell({ className }: NotificationBellProps) {
               notifications.map((item) => (
                 <div
                   key={item.id}
-                  className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-800/50"
+                  className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-[#2a2a2a] dark:bg-[#242424]"
                 >
-                  <p className="text-xs font-semibold uppercase tracking-wide text-[#b4725a]">Assigned</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[#B48470] dark:text-[#C9A84C]">Assigned</p>
                   <p className="mt-1 text-sm font-medium text-gray-900 dark:text-gray-100">{item.title}</p>
                   <p className="mt-1 text-xs text-gray-600 dark:text-gray-300">{item.body}</p>
                   <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">{formatTime(item.createdAt)}</p>

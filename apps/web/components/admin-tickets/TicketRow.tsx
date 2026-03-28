@@ -11,9 +11,10 @@ type TicketRowProps = {
   onView: (ticket: TicketRecord) => void
   onAssign: (ticket: TicketRecord) => void
   onEscalate: (ticket: TicketRecord) => void
+  isHighlighted?: boolean
 }
 
-export default function TicketRow({ ticket, actionLoading = false, onView, onAssign, onEscalate }: TicketRowProps) {
+export default function TicketRow({ ticket, actionLoading = false, onView, onAssign, onEscalate, isHighlighted = false }: TicketRowProps) {
   const clamp3Lines: CSSProperties = {
     display: "-webkit-box",
     WebkitLineClamp: 3,
@@ -21,8 +22,10 @@ export default function TicketRow({ ticket, actionLoading = false, onView, onAss
     overflow: "hidden",
   }
 
+  const highlightClass = isHighlighted ? "bg-[#C9A84C]/20 dark:bg-[#C9A84C]/30 transition-colors duration-1000 scale-[1.01] shadow-[inset_0_0_10px_rgba(201,168,76,0.3)] relative z-10" : ""
+
   return (
-    <tr className="border-t border-[#ded6cb] align-top dark:border-[#2a2a2a]">
+    <tr className={`border-t border-[#ded6cb] align-top dark:border-[#2a2a2a] ${highlightClass}`}>
       <td className="px-3 py-4 text-sm font-medium text-[#332d28] dark:text-gray-300">
         <span className="block w-full" style={clamp3Lines}>{ticket.ticketId}</span>
       </td>
