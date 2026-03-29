@@ -183,9 +183,8 @@ class CCTVAutoTicketHandler:
             complaint = create_complaint({
                 "citizen_id": self.system_citizen["id"],
                 "category_id": category_id,
-                "title": f"CCTV Detected: Pothole at {camera['name']}",
-                "description": f"Automatically detected by CCTV network at {camera['name']}.",
-                "internal_notes": f"Triggered by {trigger_meta['rule']}. {escalation_msg} Max Confidence: {best_det['confidence']:.1%}.",
+                "title": f"[AI] Pothole at {camera['name']}",
+                "description": f"Automatically detected by CCTV network at {camera.get('name', 'Camera Location')}. {escalation_msg}",
                 "location": location_wkt,
                 "digipin": digipin,
                 "address_text": address_text,
@@ -196,8 +195,6 @@ class CCTVAutoTicketHandler:
                 "effective_severity": severity,
                 "status": "submitted",
                 "assigned_department": target_dept,
-                "source": "system",   # 'cctv' is not a valid enum — 'system' = auto-generated
-                "camera_id": camera_id,
                 "photo_urls": photo_urls,
                 "photo_count": len(photo_urls),
                 "upvote_count": 0,
@@ -205,12 +202,7 @@ class CCTVAutoTicketHandler:
                 "possible_duplicate": False,
                 "sla_breached": False,
                 "escalation_level": 0,
-                "upvote_boost": 0,
-                "external_data": {
-                    "digipin": digipin,
-                    "trigger_rule": trigger_meta["rule"],
-                    "burst_size": len(burst_data)
-                }
+                "upvote_boost": 0
             }, request_id=request_id)
             
             log_analysis({
@@ -269,14 +261,14 @@ class CCTVAutoTicketHandler:
 
     def _calculate_severity(self, digipin: str, trigger_rule: str, best_conf: float, request_id: Optional[str] = None) -> tuple[str, str]:
         if trigger_rule == "T2_WEAK_SIGNAL_CLUSTER":
-            severity = "L1_LOW"
+            severity = "L1"
         elif trigger_rule in ["T1_MULTI_FRAME_CONFIRMATION", "T3_CITIZEN_CORROBORATION"]:
-            severity = "L2_MEDIUM"
+            severity = "L2"
         else:
-            severity = "L3_HIGH"
+            severity = "L3"
 
-        if best_conf >= 0.9 and severity == "L2_MEDIUM":
-            severity = "L3_HIGH"
+        if best_conf >= 0.9 and severity == "L2":
+            severity = "L3"
 
         distinct_days = count_distinct_detection_days(digipin, days=self.PERSISTENCE_DAYS_ESCALATION, request_id=request_id)
         if distinct_days >= 3 and severity != "L3_HIGH":
