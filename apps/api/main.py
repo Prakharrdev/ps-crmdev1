@@ -15,6 +15,7 @@ from math import radians, sin, cos, sqrt, atan2
 import httpx
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Header, Response
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from PIL import Image
@@ -43,6 +44,7 @@ from shared import (
     build_complaint_record,
     redis_client,
     send_resend_email,
+    AI_SERVICE_URL,
 )
 
 # Global constants for direct Supabase REST API calls (bypassing supabase-py bugs)
@@ -76,7 +78,7 @@ app.add_middleware(
     allow_origins=origins,
     allow_credentials=False,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization"],
+    allow_headers=["Content-Type", "Authorization", "x-request-id"],
 )
 
 
@@ -185,6 +187,40 @@ class ComplaintAssignRequest(BaseModel):
     status: str
 
 
+class CameraAnalyzeRequest(BaseModel):
+    camera_id: str
+
+
+
+@app.post("/cctv/analyze_live")
+async def cctv_analyze_live(
+    request: CameraAnalyzeRequest,
+    x_request_id: Optional[str] = Header(None, alias="x-request-id")
+):
+    """
+    Proxy request to the AI Service.
+    """
+    if not AI_SERVICE_URL:
+        raise HTTPException(status_code=503, detail="AI Service not configured on backend.")
+
+    base_url = AI_SERVICE_URL.strip()
+    if not base_url.startswith(("http://", "https://")):
+        base_url = f"https://{base_url}"
+    target_url = f"{base_url.rstrip('/')}/cctv/analyze_live"
+    
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.post(
+                target_url,
+                json=request.dict(),
+                headers={"x-request-id": x_request_id} if x_request_id else {},
+                timeout=60.0
+            )
+            data = resp.json()
+            return JSONResponse(status_code=resp.status_code, content=data)
+        except Exception as e:
+            print(f"[AI Proxy Error] {e}")
+            raise HTTPException(status_code=502, detail=f"Failed to reach AI service: {str(e)}")
 
 
 # =========================================================

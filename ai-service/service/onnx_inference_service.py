@@ -47,6 +47,19 @@ class OnnxInferenceService:
     def __init__(self, model_path: str | Path, config: InferenceConfig | None = None) -> None:
         self.model_path = str(Path(model_path).resolve())
         self.config = config or InferenceConfig()
+        
+        # Diagnostic: Check for ONNX GPU Support
+        try:
+            import onnxruntime as ort
+            providers = ort.get_available_providers()
+            logger.info(f"Available ONNX providers: {providers}")
+            if 'CUDAExecutionProvider' in providers:
+                logger.info("Successfully identified CUDA GPU Acceleration!")
+            else:
+                logger.warning("CUDA not found in ONNX providers. Falling back to CPU.")
+        except ImportError:
+            logger.warning("onnxruntime not found. Skipping GPU diagnostic.")
+
         self.model = YOLO(self.model_path)
 
     def predict_image(self, image_cv2) -> dict[str, Any]:

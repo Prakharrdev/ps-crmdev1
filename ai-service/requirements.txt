@@ -1,3 +1,5 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+
 # Core API & Server
 fastapi==0.115.12
 uvicorn==0.34.0
@@ -5,7 +7,7 @@ python-multipart==0.0.20
 
 # Inference Engine
 ultralytics==8.4.24
-onnxruntime>=1.20.0
+onnxruntime-gpu==1.20.0
 
 # Image Processing (Headless for Server)
 opencv-python-headless==4.13.0.92

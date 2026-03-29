@@ -1,30 +1,43 @@
-# use a Python 3.12 base image
-FROM python:3.12-slim
+# Use NVIDIA CUDA 12.1 Runtime as base
+FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
 
-# Install system dependencies (needed for OpenCV and ONNX)
+# Set non-interactive for apt-get
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install Python 3.12 and system dependencies
 RUN apt-get update && apt-get install -y \
-    libgl1-mesa-glx \
+    python3.12 \
+    python3-pip \
+    python3.12-dev \
+    libgl1 \
     libglib2.0-0 \
-    && rm -rf /var/lib/apt/lists/*
+    wget \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Set the working directory inside the container
+# Set the working directory
 WORKDIR /app
 
-# Copy the requirements file into the container
-COPY requirements.txt .
+# Ensure python3.12 is the default
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 \
+    && update-alternatives --set python3 /usr/bin/python3.12
+
+# Copy the requirements file (using monorepo path if built from root)
+COPY ai-service/requirements.txt .
 
 # Install dependencies (using --no-cache-dir to save space)
-RUN pip install --no-cache-dir -r requirements.txt
+# We use the CPU index for PyTorch to save ~4GB, but onnxruntime-gpu for inference speed.
+RUN python3 -m pip install --no-cache-dir --upgrade pip && \
+    python3 -m pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
 
 # Copy the rest of the application code
-COPY . .
+COPY ai-service/ .
 
-# Set the environment variable for Python path to find "service" module
+# Set environment variables
 ENV PYTHONPATH=/app
+ENV DEVICE=0
 
-# Expose the port Railway will assign (default 8000 if not set)
+# Expose the port Railway will assign
 EXPOSE 8000
 
-# Start the application using uvicorn
-# We use $PORT if provided, otherwise default to 8000
+# Start the application
 CMD uvicorn service.main:app --host 0.0.0.0 --port ${PORT:-8000}

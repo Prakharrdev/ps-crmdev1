@@ -41,6 +41,7 @@ GEMINI_PRIMARY_MODEL = os.getenv("GEMINI_PRIMARY_MODEL", "gemini-2.5-flash")
 GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-2.0-flash")
 MAPPLS_API_KEY = os.getenv("MAPPLS_API_KEY")
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
+AI_SERVICE_URL = os.getenv("AI_SERVICE_URL")
 
 async def send_resend_email(ticket_id: str, title: str, authority: str, severity: str, ward: str, city: str, address: str):
     """Sends an official aesthetic email notification via Resend REST API."""
