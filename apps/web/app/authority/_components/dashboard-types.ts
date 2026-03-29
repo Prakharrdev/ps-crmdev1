@@ -8,6 +8,8 @@ export type ComplaintStatus =
   | "resolved"
   | "rejected"
   | "escalated"
+  | "pending_closure"
+  | "closed"
 
 export type SeverityLevel = "L1" | "L2" | "L3" | "L4"
 
@@ -120,8 +122,10 @@ export const STATUS_META: Record<ComplaintStatus, { label: string; badge: string
   assigned:     { label: "Assigned",     badge: "bg-blue-50 text-blue-700 ring-1 ring-blue-200 dark:bg-blue-900/30 dark:text-blue-300",             step: 3 },
   in_progress:  { label: "In Progress",  badge: "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-300",  step: 4 },
   resolved:     { label: "Resolved",     badge: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300", step: 5 },
+  pending_closure: { label: "Pending Verification", badge: "bg-purple-50 text-purple-700 ring-1 ring-purple-200 dark:bg-purple-900/30 dark:text-purple-300",  step: 4.5 },
+  closed:       { label: "Closed",       badge: "bg-gray-900 text-white ring-1 ring-black dark:bg-black dark:text-gray-300",                   step: 6 },
   rejected:     { label: "Rejected",     badge: "bg-red-50 text-red-600 ring-1 ring-red-200 dark:bg-red-900/30 dark:text-red-400",                  step: 0 },
-  escalated:    { label: "Escalated",    badge: "bg-purple-50 text-purple-700 ring-1 ring-purple-200 dark:bg-purple-900/30 dark:text-purple-300",   step: 6 },
+  escalated:    { label: "Escalated",    badge: "bg-orange-50 text-orange-700 ring-1 ring-orange-200 dark:bg-orange-900/30 dark:text-orange-300",  step: 7 },
 }
 
 export const STATUS_CHART_COLOR: Record<ComplaintStatus, string> = {
@@ -130,8 +134,10 @@ export const STATUS_CHART_COLOR: Record<ComplaintStatus, string> = {
   assigned:     "#3b82f6",
   in_progress:  "#6366f1",
   resolved:     "#10b981",
+  pending_closure: "#a855f7",
+  closed:       "#111827",
   rejected:     "#ef4444",
-  escalated:    "#a855f7",
+  escalated:    "#f97316",
 }
 
 // ── SLA helper ────────────────────────────────────────────────────────────────
@@ -221,9 +227,9 @@ export function getStatusBreakdown(
     .sort((a, b) => b[1] - a[1])
     .map(([status, count]) => ({
       status,
-      label: STATUS_META[status].label,
+      label: STATUS_META[status]?.label || "Other",
       count,
-      color: STATUS_CHART_COLOR[status],
+      color: STATUS_CHART_COLOR[status] || "#6b7280",
     }))
 }
 

@@ -10,7 +10,10 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; bar: string }> =
   Assigned:     { bg: "bg-blue-50 dark:bg-blue-900/20",      text: "text-blue-700 dark:text-blue-300",     bar: "bg-blue-500"  },
   "In Progress":{ bg: "bg-indigo-50 dark:bg-indigo-900/20", text: "text-indigo-700 dark:text-indigo-300", bar: "bg-indigo-500"},
   Resolved:     { bg: "bg-emerald-50 dark:bg-emerald-900/20",text: "text-emerald-700 dark:text-emerald-300",bar: "bg-emerald-500"},
-  Escalated:    { bg: "bg-purple-50 dark:bg-purple-900/20",  text: "text-purple-700 dark:text-purple-300", bar: "bg-purple-500"},
+  Escalated:    { bg: "bg-orange-50 dark:bg-orange-900/20",   text: "text-orange-700 dark:text-orange-300", bar: "bg-orange-500"  },
+  "Pending Verification": { bg: "bg-purple-50 dark:bg-purple-900/20", text: "text-purple-700 dark:text-purple-300", bar: "bg-purple-500"  },
+  Closed:       { bg: "bg-gray-100 dark:bg-gray-800",        text: "text-gray-900 dark:text-gray-100",     bar: "bg-gray-900"    },
+  Rejected:     { bg: "bg-red-50 dark:bg-red-900/20",       text: "text-red-700 dark:text-red-300",       bar: "bg-red-500"     },
 }
 
 function SkeletonBreakdown() {

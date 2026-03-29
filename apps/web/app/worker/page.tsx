@@ -445,7 +445,7 @@ export default function WorkerDashboardPage() {
       // 2. Update complaint status → in_progress + store proof URL
       //    The ticket stays open until the Admin verifies via the Surveillance card.
       const updatePayload: Record<string, unknown> = {
-        status: 'in_progress',
+        status: 'pending_closure',
       }
       if (proofPhotoUrl) updatePayload['proof_photo_url'] = proofPhotoUrl
 
@@ -479,7 +479,7 @@ export default function WorkerDashboardPage() {
           changed_by: workerId,
           complaint_id: displayTask.id,
           old_status: displayTask.status,
-          new_status: 'in_progress',
+          new_status: 'pending_closure',
           note: completionNote || 'Worker marked repair complete. Awaiting CCTV verification.',
           is_internal: false,
         })
