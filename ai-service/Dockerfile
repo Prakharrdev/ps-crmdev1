@@ -1,14 +1,13 @@
-# Use NVIDIA CUDA 12.1 Runtime as base
+# Use NVIDIA CUDA 12.1 Runtime as base (Ubuntu 22.04)
 FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
 
 # Set non-interactive for apt-get
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install Python 3.12 and system dependencies
+# Install Python 3 (defaults to 3.10 on Ubuntu 22.04) and system dependencies
 RUN apt-get update && apt-get install -y \
-    python3.12 \
+    python3 \
     python3-pip \
-    python3.12-dev \
     libgl1 \
     libglib2.0-0 \
     wget \
@@ -16,10 +15,6 @@ RUN apt-get update && apt-get install -y \
 
 # Set the working directory
 WORKDIR /app
-
-# Ensure python3.12 is the default
-RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 \
-    && update-alternatives --set python3 /usr/bin/python3.12
 
 # Copy the requirements file (using monorepo path if built from root)
 COPY ai-service/requirements.txt .
