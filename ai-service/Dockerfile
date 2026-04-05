@@ -1,5 +1,5 @@
-# Use NVIDIA CUDA 12.1 Runtime with Ubuntu 24.04 (has native Python 3.12)
-FROM nvidia/cuda:12.1.1-cudnn-runtime-ubuntu24.04
+# Use NVIDIA CUDA 12.6.3 Runtime with Ubuntu 24.04 (has native Python 3.12)
+FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04
 
 # Set non-interactive for apt-get
 ENV DEBIAN_FRONTEND=noninteractive
