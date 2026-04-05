@@ -25,8 +25,7 @@ COPY requirements.txt .
 
 # Install dependencies (using --no-cache-dir to save space)
 # We use the CPU index for PyTorch to save ~4GB, but onnxruntime-gpu for inference speed.
-RUN python3 -m pip install --no-cache-dir --upgrade pip --break-system-packages && \
-    python3 -m pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt --break-system-packages
+RUN python3 -m pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt --break-system-packages
 
 # Copy the rest of the application code
 COPY . .
