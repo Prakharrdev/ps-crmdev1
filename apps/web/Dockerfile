@@ -1,29 +1,18 @@
 # Stage 1: Dependencies
 FROM node:20-slim AS deps
 WORKDIR /app
-
-# Install pnpm
 RUN npm install -g pnpm
-
-# Copy package files
 COPY package.json pnpm-lock.yaml* ./
-
-# Install dependencies
 RUN pnpm install --frozen-lockfile
 
 # Stage 2: Builder
 FROM node:20-slim AS builder
 WORKDIR /app
-
-# Install pnpm
 RUN npm install -g pnpm
-
-# Copy dependencies and source
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 # Build the Next.js app
-# Disable telemetry and provide dummy envs for build-time data collection
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NEXT_PUBLIC_SUPABASE_URL=https://dummy.supabase.co
 ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=dummy
@@ -41,16 +30,18 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN groupadd --system --gid 1001 nodejs
 RUN useradd --system --uid 1001 nextjs
 
-# Copy essential files
+# Copy essential files from builder
+# Next.js standalone output contains everything needed to run the server
 COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./package.json
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
 USER nextjs
 
 # Cloud Run uses the PORT environment variable
 ENV PORT=8080
-EXPOSE 8080
+ENV HOSTNAME="0.0.0.0"
 
-CMD ["pnpm", "start"]
+# The standalone server listens on port 3000 by default, 
+# but it will honor the PORT environment variable if specified.
+CMD ["node", "server.js"]
