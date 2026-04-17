@@ -254,7 +254,7 @@ export default function NearbyTicketsMap({
       <div className="relative overflow-hidden transition-all duration-300" style={{ height: collapsed ? 0 : customHeight || expandedMapHeight }}>
         {!collapsed && L && (
           <MapContainer
-            key={mapSessionKey}
+            key={`map-${mapSessionKey}-${userLocation?.lat}-${userLocation?.lng}`}
             center={[28.6139, 77.209]}
             zoom={12}
             style={{ height: "100%", width: "100%" }}

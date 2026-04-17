@@ -17,6 +17,7 @@ import {
   type DashboardTask,
 } from "@/components/worker-dashboard/dashboard-types"
 import CurrentTicketCard from "@/components/worker-dashboard/CurrentTicketCard"
+import PendingTicketCard from "@/components/worker-dashboard/PendingTicketCard"
 
 const WorkerTaskMapPanel = dynamic(() => import("@/components/worker-dashboard/WorkerTaskMapPanel"), {
   ssr: false,
@@ -37,10 +38,12 @@ type ComplaintWithCategory = {
     | "resolved"
     | "rejected"
     | "escalated"
+    | "reopened"
   created_at: string
   resolved_at: string | null
   location: unknown
   categories: { name: string } | null
+  is_spam: boolean
   camera_id: string | null  // present on CCTV auto-generated tickets
 }
 
@@ -89,6 +92,7 @@ function transformPayload(payload: WorkerDashboardPayload) {
         longitude: complaintLocation?.lng ?? null,
         distanceKm,
         cameraId: complaint.camera_id ?? null,
+        isSpam: complaint.is_spam || false,
       } satisfies DashboardTask
     })
 
@@ -211,6 +215,27 @@ export default function WorkerDashboardPage() {
   // PERFORMANCE OPTIMIZATION: Removed 15s polling. 
   // We now rely entirely on the Realtime channels below for updates.
 
+  // Invalidate Redis cache then fetch fresh data — used by realtime handlers
+  // so the re-fetch doesn't just return stale cached data.
+  const invalidateAndFetch = useCallback(async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.access_token) {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+        await fetch(`${apiUrl}/api/worker/dashboard/invalidate`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        })
+      }
+    } catch (err) {
+      console.error("Cache invalidation failed:", err)
+    }
+    await fetchDashboardData()
+  }, [fetchDashboardData])
+
   // ── Realtime sync: listen for external changes ──────────────────────────────
   useEffect(() => {
     if (!workerId) return
@@ -221,7 +246,7 @@ export default function WorkerDashboardPage() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "complaints", filter: `assigned_worker_id=eq.${workerId}` },
-        () => void fetchDashboardData(),
+        () => void invalidateAndFetch(),
       )
       // Catch tickets being reassigned AWAY from this worker (old row had our id, new row doesn't)
       .on(
@@ -230,7 +255,7 @@ export default function WorkerDashboardPage() {
         (payload) => {
           const old = payload.old as { assigned_worker_id?: string }
           if (old.assigned_worker_id === workerId) {
-            void fetchDashboardData()
+            void invalidateAndFetch()
           }
         },
       )
@@ -238,24 +263,24 @@ export default function WorkerDashboardPage() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "worker_profiles", filter: `worker_id=eq.${workerId}` },
-        () => void fetchDashboardData(),
+        () => void invalidateAndFetch(),
       )
       // Activity feed: new ticket_history entry by this worker
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "ticket_history", filter: `changed_by=eq.${workerId}` },
-        () => void fetchDashboardData(),
+        () => void invalidateAndFetch(),
       )
       .subscribe()
 
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [workerId, fetchDashboardData])
+  }, [workerId, invalidateAndFetch])
 
   const sortedAssignedTasks = useMemo(() => {
     return tasks
-      .filter((task) => task.status === "assigned")
+      .filter((task) => task.status === "assigned" || task.status === "reopened")
       .sort((a, b) => {
         if (severityWeight[b.severity] !== severityWeight[a.severity]) {
           return severityWeight[b.severity] - severityWeight[a.severity]
@@ -270,9 +295,9 @@ export default function WorkerDashboardPage() {
 
     return {
       tasksToday: tasks.filter((task) => new Date(task.createdAt).getTime() >= startOfDay).length,
-      pending: tasks.filter((task) => task.status === "assigned").length,
+      pending: tasks.filter((task) => task.status === "assigned" || task.status === "reopened").length,
       completedToday: tasks.filter(
-        (task) => task.status === "resolved" && task.resolvedAt && new Date(task.resolvedAt).getTime() >= startOfDay,
+        (task) => task.status === "resolved" && !task.isSpam && task.resolvedAt && new Date(task.resolvedAt).getTime() >= startOfDay,
       ).length,
       urgent: tasks.filter((task) => task.status !== "resolved" && (task.severity === "L3" || task.severity === "L4")).length,
     } satisfies DashboardStats
@@ -280,9 +305,12 @@ export default function WorkerDashboardPage() {
 
   const currentTask = useMemo(() => tasks.find((task) => task.status === "in_progress") ?? null, [tasks])
   const urgentTask = useMemo(() => (sortedAssignedTasks.length > 0 ? sortedAssignedTasks[0] : null), [sortedAssignedTasks])
+  const pendingTask = useMemo(() => {
+    return currentTask ?? urgentTask ?? sortedAssignedTasks[0] ?? tasks.find((task) => task.status === "assigned" || task.status === "reopened") ?? null
+  }, [currentTask, sortedAssignedTasks, tasks, urgentTask])
 
   const updateTaskStatus = useCallback(
-    async (complaintId: string, nextStatus: "in_progress" | "resolved" | "escalated", note?: string) => {
+    async (complaintId: string, nextStatus: "in_progress" | "pending_closure" | "resolved" | "escalated", note?: string) => {
       if (!workerId) return
 
       const task = tasks.find((item) => item.id === complaintId)
@@ -291,7 +319,7 @@ export default function WorkerDashboardPage() {
       const { error: updateError } = await supabase
         .from("complaints")
         .update({
-          status: nextStatus,
+          status: nextStatus as any,
           resolved_at: nextStatus === "resolved" ? new Date().toISOString() : null,
         })
         .eq("id", complaintId)
@@ -314,12 +342,28 @@ export default function WorkerDashboardPage() {
         setError("Task updated, but activity log write failed.")
       }
 
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session?.access_token) {
+          const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+          await fetch(`${apiUrl}/api/worker/dashboard/invalidate`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          })
+        }
+      } catch (err) {
+        console.error("Cache invalidation failed:", err)
+      }
+
       if (nextStatus === "in_progress") {
         await supabase
           .from("worker_profiles")
           .update({ current_complaint_id: complaintId, availability: "busy" })
           .eq("worker_id", workerId)
       }
+
+      // pending_closure: worker stays busy, ticket is awaiting citizen confirmation
+      // Don't clear current_complaint_id or set availability to available
 
       if (nextStatus === "resolved") {
         await supabase
@@ -342,9 +386,27 @@ export default function WorkerDashboardPage() {
 
   const handleCompleteTask = useCallback(
     async (complaintId: string) => {
-      await updateTaskStatus(complaintId, "resolved", "Completed from worker dashboard")
+      await updateTaskStatus(complaintId, "pending_closure", completionNote.trim() || "Completed from worker dashboard")
+
+      // Trigger WhatsApp notification to the citizen
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session?.access_token) {
+          const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+          await fetch(`${apiUrl}/api/notify/closure-confirmation`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({ complaint_id: complaintId }),
+          })
+        }
+      } catch (err) {
+        console.error("WhatsApp notification failed (non-blocking):", err)
+      }
     },
-    [updateTaskStatus],
+    [updateTaskStatus, completionNote],
   )
 
   const handleUpdateProgress = useCallback(
@@ -387,8 +449,8 @@ export default function WorkerDashboardPage() {
   }, [])
 
   const displayTask = useMemo(() => {
-    return selectedTask
-  }, [selectedTask])
+    return selectedTask ?? currentTask ?? urgentTask ?? sortedAssignedTasks[0] ?? tasks[0] ?? null
+  }, [currentTask, selectedTask, sortedAssignedTasks, tasks, urgentTask])
 
   const statsCards = useMemo(
     () => [
@@ -442,10 +504,12 @@ export default function WorkerDashboardPage() {
         }
       }
 
-      // 2. Update complaint status → in_progress + store proof URL
-      //    The ticket stays open until the Admin verifies via the Surveillance card.
+      // 2. Set next status based on whether it is a CCTV-ticket or normal
+      const nextStatus = displayTask.cameraId ? 'in_progress' : 'pending_closure'
+
+      // 3. Update complaint status + store proof URL
       const updatePayload: Record<string, unknown> = {
-        status: 'in_progress',
+        status: nextStatus,
       }
       if (proofPhotoUrl) updatePayload['proof_photo_url'] = proofPhotoUrl
 
@@ -460,9 +524,28 @@ export default function WorkerDashboardPage() {
         return
       }
 
-      // 3. If this is a CCTV ticket, trigger Pending Verification on the camera card
+      // 4. Trigger Notifications if normal ticket
+      if (!displayTask.cameraId) {
+        try {
+          const { data: { session } } = await supabase.auth.getSession()
+          if (session?.access_token) {
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+            await fetch(`${apiUrl}/api/notify/closure-confirmation`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${session.access_token}`,
+              },
+              body: JSON.stringify({ complaint_id: displayTask.id }),
+            })
+          }
+        } catch (err) {
+          console.error("WhatsApp notification failed (non-blocking):", err)
+        }
+      }
+
+      // 5. If this is a CCTV ticket, trigger Pending Verification on the camera card
       if (displayTask.cameraId) {
-        // cctv_cameras is not in the generated DB types — use explicit cast
         const sbAny = supabase as any
         const { error: camErr } = await sbAny
           .from('cctv_cameras')
@@ -473,14 +556,14 @@ export default function WorkerDashboardPage() {
         }
       }
 
-      // 4. Log to ticket_history
+      // 6. Log to ticket_history
       if (workerId) {
         await supabase.from('ticket_history').insert({
           changed_by: workerId,
           complaint_id: displayTask.id,
           old_status: displayTask.status,
-          new_status: 'in_progress',
-          note: completionNote || 'Worker marked repair complete. Awaiting CCTV verification.',
+          new_status: nextStatus,
+          note: completionNote || (displayTask.cameraId ? 'Worker marked repair complete. Awaiting CCTV verification.' : 'Worker marked complete. Awaiting citizen confirmation.'),
           is_internal: false,
         })
       }
@@ -498,25 +581,7 @@ export default function WorkerDashboardPage() {
   }
 
   return (
-    <div className="flex min-h-full flex-col gap-3 overflow-visible lg:gap-4">
-      <div className="flex items-center justify-between gap-4">
-        <h1 className="text-xl font-bold text-gray-900 dark:text-white sm:text-2xl">Worker Dashboard</h1>
-        
-        <div className="flex items-center gap-2">
-          {loading && (
-            <div className="flex items-center gap-2 rounded-full border border-gray-100 bg-white/80 px-2 py-1 text-[10px] font-medium text-gray-400 shadow-sm backdrop-blur-sm dark:border-[#2a2a2a] dark:bg-[#1a1a1a]/80">
-              <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
-              Syncing...
-            </div>
-          )}
-          {error && (
-            <div className="shrink-0 rounded-full border border-red-200 bg-red-50 px-3 py-1 text-[10px] font-medium text-red-700 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-400">
-              {error}
-            </div>
-          )}
-        </div>
-      </div>
-
+    <div className="flex h-full min-h-full flex-col gap-4 overflow-visible lg:gap-5">
       <section className="shrink-0 grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
         {statsCards.map((card) => {
           const Icon = card.icon
@@ -536,8 +601,8 @@ export default function WorkerDashboardPage() {
         })}
       </section>
 
-      <section className="grid min-h-0 grid-cols-1 gap-4 xl:grid-cols-4">
-        <div className="min-h-0 space-y-4 overflow-visible xl:col-span-3 xl:pr-1">
+      <section className="grid min-h-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-4">
+        <div className="min-h-0 h-full space-y-4 overflow-visible xl:col-span-3 xl:pr-1">
           <WorkerTaskMapPanel
             tasks={mapTasks}
             loading={loading}
@@ -547,40 +612,61 @@ export default function WorkerDashboardPage() {
           />
         </div>
 
-        {displayTask ? (
-          <aside className="min-h-0 overflow-visible xl:col-span-1 xl:pr-1">
-            <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-[#2a2a2a] dark:bg-[#1e1e1e]">
-              <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Ticket Details</h2>
-                <button
-                  type="button"
-                  onClick={() => setSelectedTaskId(null)}
-                  className="rounded-md border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 dark:border-[#3a3a3a] dark:text-gray-200 dark:hover:bg-[#2a2a2a]"
-                >
-                  Close
-                </button>
-              </div>
+        <aside className="min-h-0 h-full overflow-visible xl:col-span-1 xl:pr-1">
+          <div className="flex h-full flex-col gap-4">
+            {displayTask ? (
+              <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-[#2a2a2a] dark:bg-[#1e1e1e]">
+                <div className="mb-3 flex items-center justify-between">
+                  <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Urgent Ticket</h2>
+                </div>
 
-              <CurrentTicketCard
-                ticket={displayTask}
-                onNavigate={(latitude, longitude) => {
-                  window.open(
-                    `https://www.google.com/maps/dir/?api=1&destination=${latitude},${longitude}`,
-                    "_blank",
-                    "noopener,noreferrer",
-                  )
-                }}
-                onUpdate={async (ticketId, note) => {
-                  await handleUpdateProgress(ticketId, note)
-                }}
-                onStatusChange={async (ticketId, newStatus) => {
-                  await updateTaskStatus(ticketId, newStatus as "in_progress" | "resolved" | "escalated")
-                }}
-                onMarkCompleted={(_ticketId) => setIsCompletionModalOpen(true)}
-              />
-            </section>
-          </aside>
-        ) : null}
+                <CurrentTicketCard
+                  ticket={displayTask}
+                  onNavigate={(latitude, longitude) => {
+                    window.open(
+                      `https://www.google.com/maps/dir/?api=1&destination=${latitude},${longitude}`,
+                      "_blank",
+                      "noopener,noreferrer",
+                    )
+                  }}
+                  onUpdate={async (ticketId, note) => {
+                    await handleUpdateProgress(ticketId, note)
+                  }}
+                  onStatusChange={async (ticketId, newStatus) => {
+                    await updateTaskStatus(ticketId, newStatus as "in_progress" | "pending_closure" | "resolved" | "escalated")
+                  }}
+                  onMarkCompleted={(_ticketId) => setIsCompletionModalOpen(true)}
+                />
+              </section>
+            ) : null}
+
+            {pendingTask ? (
+              <section className="flex flex-1 flex-col rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-[#2a2a2a] dark:bg-[#1e1e1e]">
+                <div className="mb-3 flex items-center justify-between">
+                  <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Pending Ticket</h2>
+                  <span className="text-xs text-gray-400 dark:text-gray-500">Next up</span>
+                </div>
+                <PendingTicketCard
+                  ticket={pendingTask}
+                  onNavigate={(latitude, longitude) => {
+                    window.open(
+                      `https://www.google.com/maps/dir/?api=1&destination=${latitude},${longitude}`,
+                      "_blank",
+                      "noopener,noreferrer",
+                    )
+                  }}
+                  onUpdate={async (ticketId, note) => {
+                    await handleUpdateProgress(ticketId, note)
+                  }}
+                  onStatusChange={async (ticketId, newStatus) => {
+                    await updateTaskStatus(ticketId, newStatus as "in_progress" | "pending_closure" | "resolved" | "escalated")
+                  }}
+                  onMarkCompleted={(_ticketId) => setIsCompletionModalOpen(true)}
+                />
+              </section>
+            ) : null}
+          </div>
+        </aside>
       </section>
 
       {isCompletionModalOpen && displayTask ? (
@@ -599,7 +685,7 @@ export default function WorkerDashboardPage() {
               </p>
             ) : (
               <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
-                Ticket {displayTask.ticketId} will be marked for verification.
+                Ticket {displayTask.ticketId} will be sent to the citizen for confirmation before final closure.
               </p>
             )}
 

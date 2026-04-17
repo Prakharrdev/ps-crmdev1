@@ -687,7 +687,7 @@ export default function ChatPanel({ onClose: _onClose }: { onClose?: () => void 
             }
           }
         } catch (err) {
-          console.error("Failed to fetch chat history:", err);
+          console.warn("[Backend] Could not fetch chat history, proceeding empty. Error:", err);
         }
       }
       
@@ -764,7 +764,11 @@ export default function ChatPanel({ onClose: _onClose }: { onClose?: () => void 
           body: JSON.stringify({ messages }),
         });
       } catch (err) {
-        console.error("Failed to sync chat history:", err);
+        if (err instanceof TypeError && err.message === "Failed to fetch") {
+          console.warn("Backend API unreachable. Chat history sync suspended.");
+        } else {
+          console.error("Failed to sync chat history:", err);
+        }
       }
     };
 
@@ -1151,6 +1155,22 @@ export default function ChatPanel({ onClose: _onClose }: { onClose?: () => void 
 
       const created = await res.json();
 
+      // Trigger point awarding for AI-confirmed ticket
+      try {
+        if (userIdRef.current) {
+          fetch("/api/gamification/award", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ 
+              ticket_id: created.ticket_id || created.id, 
+              userId: userIdRef.current 
+            }),
+          }).catch(err => console.error("[Gamification] Failed to award points:", err));
+        }
+      } catch (err) {
+        console.error("[Gamification] Error in award trigger:", err);
+      }
+
       setSubmitted(true);
       if (userIdRef.current) clearSharedState(`jansamadhan_pending_state_${userIdRef.current}`).catch(console.error);
       setPendingImagePreview(null);
@@ -1222,6 +1242,22 @@ export default function ChatPanel({ onClose: _onClose }: { onClose?: () => void 
           return;
         }
         throw new Error(data.error || "Failed to submit complaint");
+      }
+
+      // Trigger point awarding for text-based ticket
+      try {
+        if (userIdRef.current) {
+          fetch("/api/gamification/award", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ 
+              ticket_id: data.complaint?.ticket_id || data.complaint?.id, 
+              userId: userIdRef.current 
+            }),
+          }).catch(err => console.error("[Gamification] Failed to award points:", err));
+        }
+      } catch (err) {
+        console.error("[Gamification] Error in award trigger:", err);
       }
 
       setSubmitted(true);
@@ -1420,6 +1456,7 @@ export default function ChatPanel({ onClose: _onClose }: { onClose?: () => void 
           mediaRecorderRef.current.stop();
         }
       }, 30000);
+      addBotMessage(t(selectedLanguage, "mic_denied"));
     } catch (err) {
       console.error("Microphone access error:", err);
       addBotMessage(t(selectedLanguage, "mic_denied"));

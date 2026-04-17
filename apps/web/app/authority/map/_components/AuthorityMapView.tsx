@@ -42,6 +42,9 @@ type ComplaintStatus =
   | "resolved"
   | "rejected"
   | "escalated"
+  | "reopened"
+  | "pending_closure"
+  | "spam"
 
 type SeverityLevel = "L1" | "L2" | "L3" | "L4"
 
@@ -161,6 +164,9 @@ const STATUS_BADGE: Record<ComplaintStatus, string> = {
   resolved:     "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
   rejected:     "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400",
   escalated:    "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
+  reopened:     "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
+  pending_closure: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
+  spam:         "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400",
 }
 
 const STATUS_LABEL: Record<ComplaintStatus, string> = {
@@ -171,6 +177,9 @@ const STATUS_LABEL: Record<ComplaintStatus, string> = {
   resolved:     "Resolved",
   rejected:     "Rejected",
   escalated:    "Escalated",
+  reopened:     "Reopened",
+  pending_closure: "Pending Verification",
+  spam:         "Spam",
 }
 
 // ─── Heatmap layer ────────────────────────────────────────────────────────────
@@ -484,6 +493,8 @@ const STATUS_OPTIONS: { value: ComplaintStatus | "all"; label: string }[] = [
   { value: "assigned",     label: "Assigned" },
   { value: "in_progress",  label: "In Progress" },
   { value: "escalated",    label: "Escalated" },
+  { value: "reopened",     label: "Reopened" },
+  { value: "spam",         label: "Spam" },
 ]
 
 const SEV_OPTIONS: { value: SeverityLevel | "all"; label: string }[] = [

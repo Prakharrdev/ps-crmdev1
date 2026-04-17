@@ -11,6 +11,7 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; bar: string }> =
   "In Progress":{ bg: "bg-indigo-50 dark:bg-indigo-900/20", text: "text-indigo-700 dark:text-indigo-300", bar: "bg-indigo-500"},
   Resolved:     { bg: "bg-emerald-50 dark:bg-emerald-900/20",text: "text-emerald-700 dark:text-emerald-300",bar: "bg-emerald-500"},
   Escalated:    { bg: "bg-purple-50 dark:bg-purple-900/20",  text: "text-purple-700 dark:text-purple-300", bar: "bg-purple-500"},
+  Reopened:     { bg: "bg-red-50 dark:bg-red-900/20",     text: "text-red-700 dark:text-red-300",     bar: "bg-red-500"},
 }
 
 function SkeletonBreakdown() {

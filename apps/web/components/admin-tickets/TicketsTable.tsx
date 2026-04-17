@@ -7,6 +7,7 @@ type TicketsTableProps = {
   onView: (ticket: TicketRecord) => void
   onAssign: (ticket: TicketRecord) => void
   onEscalate: (ticket: TicketRecord) => void
+  onSpam: (ticket: TicketRecord) => void
   highlightTicketId?: string | null
 }
 
@@ -42,6 +43,7 @@ export default function TicketsTable({
   onView,
   onAssign,
   onEscalate,
+  onSpam,
   highlightTicketId,
 }: TicketsTableProps) {
   return (
@@ -77,6 +79,7 @@ export default function TicketsTable({
                 onView={onView}
                 onAssign={onAssign}
                 onEscalate={onEscalate}
+                onSpam={onSpam}
                 isHighlighted={ticket.id === highlightTicketId}
               />
             ))

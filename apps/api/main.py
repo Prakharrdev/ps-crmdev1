@@ -187,6 +187,10 @@ class ComplaintAssignRequest(BaseModel):
     status: str
 
 
+class ClosureConfirmationRequest(BaseModel):
+    complaint_id: str
+
+
 class CameraAnalyzeRequest(BaseModel):
     camera_id: str
 
@@ -221,6 +225,8 @@ async def cctv_analyze_live(
         except Exception as e:
             print(f"[AI Proxy Error] {e}")
             raise HTTPException(status_code=502, detail=f"Failed to reach AI service: {str(e)}")
+class ClosureConfirmationRequest(BaseModel):
+    complaint_id: str
 
 
 # =========================================================
@@ -817,43 +823,23 @@ async def get_citizen_tickets(
     authorization: Optional[str] = Header(None)
 ):
     """
-    Fetch citizen tickets with Redis caching.
+    Fetch citizen tickets from database.
     Supports a 'since' parameter (ISO timestamp) to return only new/updated records.
     """
     citizen_id = get_citizen_id_from_token(authorization)
-    cache_key = f"user:tickets:{citizen_id}"
-
-    # 1. Try to fetch from Redis if no delta is requested
-    if not since and redis_client:
-        try:
-            cached_data = redis_client.get(cache_key)
-            if cached_data:
-                return {
-                    "source": "cache",
-                    "tickets": json.loads(cached_data)
-                }
-        except Exception as e:
-            print(f"Redis read error: {e}")
-
-    # 2. Fallback to Supabase
+    
+    # Always fetch fresh data from Supabase to avoid stale status when workers update tickets directly
     query = supabase.table("complaints").select(
-        "id, ticket_id, title, address_text, assigned_department, status, created_at, upvote_count, reviews(rating)"
+        "id, ticket_id, title, address_text, assigned_department, status, is_spam, created_at, updated_at, upvote_count, reviews(rating)"
     ).eq("citizen_id", citizen_id).order("created_at", desc=True)
 
     if since:
-        query = query.gt("created_at", since)
+        query = query.gt("updated_at", since)
 
     try:
         response = query.execute()
         tickets = response.data or []
         
-        # 3. Cache the FULL list in Redis for 1 hour (only if not a delta query)
-        if not since and redis_client:
-            try:
-                redis_client.setex(cache_key, 3600, json.dumps(tickets))
-            except Exception as e:
-                print(f"Redis write error: {e}")
-
         return {
             "source": "database" if not since else "delta",
             "tickets": tickets
@@ -962,11 +948,11 @@ async def get_admin_dashboard_stats(
             total_res, active_res, resolved_res, escalated_res, authorities_res, resolved_rows
         ] = await asyncio.gather(
             asyncio.to_thread(lambda: supabase.table("complaints").select("id", count="exact").execute()),
-            asyncio.to_thread(lambda: supabase.table("complaints").select("id", count="exact").in_("status", ["submitted", "under_review", "assigned", "in_progress", "escalated"]).execute()),
-            asyncio.to_thread(lambda: supabase.table("complaints").select("id", count="exact").eq("status", "resolved").execute()),
+            asyncio.to_thread(lambda: supabase.table("complaints").select("id", count="exact").in_("status", ["submitted", "under_review", "assigned", "in_progress", "escalated", "reopened"]).execute()),
+            asyncio.to_thread(lambda: supabase.table("complaints").select("id", count="exact").eq("status", "resolved").eq("is_spam", False).execute()),
             asyncio.to_thread(lambda: supabase.table("complaints").select("id", count="exact").eq("status", "escalated").execute()),
             asyncio.to_thread(lambda: supabase.table("profiles").select("id", count="exact").eq("role", "authority").eq("is_blocked", False).execute()),
-            asyncio.to_thread(lambda: supabase.table("complaints").select("created_at, resolved_at").eq("status", "resolved").execute())
+            asyncio.to_thread(lambda: supabase.table("complaints").select("created_at, resolved_at").eq("status", "resolved").eq("is_spam", False).execute())
         )
 
         # Calculate Average Resolution Days
@@ -1073,7 +1059,7 @@ async def update_admin_authority(
         )
 
         # 2. Update active complaints assigned to this officer
-        active_statuses = ["submitted", "under_review", "assigned", "in_progress", "escalated"]
+        active_statuses = ["submitted", "under_review", "assigned", "in_progress", "escalated", "reopened"]
         await asyncio.to_thread(
             lambda: supabase.table("complaints")
             .update({"assigned_department": payload.department})
@@ -1222,7 +1208,7 @@ async def update_admin_worker(
         )
 
         # 3. Update active complaints assigned to this worker
-        active_statuses = ["submitted", "under_review", "assigned", "in_progress", "escalated"]
+        active_statuses = ["submitted", "under_review", "assigned", "in_progress", "escalated", "reopened"]
         await asyncio.to_thread(
             lambda: supabase.table("complaints")
             .update({"assigned_department": payload.department})
@@ -1235,6 +1221,8 @@ async def update_admin_worker(
         if redis_client:
             try:
                 redis_client.delete("admin:workers:list")
+                for key in redis_client.scan_iter("authority:workers:*"):
+                    redis_client.delete(key)
             except Exception as e:
                 print(f"Redis invalidation failed: {e}")
 
@@ -1296,6 +1284,8 @@ async def create_admin_worker(
         if redis_client:
             try:
                 redis_client.delete("admin:workers:list")
+                for key in redis_client.scan_iter("authority:workers:*"):
+                    redis_client.delete(key)
             except Exception as e:
                 print(f"Redis invalidation failed: {e}")
 
@@ -1428,7 +1418,7 @@ async def get_admin_complaints_list(
         ).order("created_at", desc=True)
 
         if status == "pending":
-            q = q.in_("status", ["submitted", "under_review", "assigned"])
+            q = q.in_("status", ["submitted", "under_review", "assigned", "reopened"])
         elif status != "all":
             q = q.eq("status", status)
 
@@ -1521,12 +1511,12 @@ async def get_admin_complaints_list(
 # =========================================================
 
 COMPLAINT_DASHBOARD_SELECT = (
-    "id, ticket_id, title, status, effective_severity, sla_deadline, "
+    "id, ticket_id, title, status, is_spam, effective_severity, sla_deadline, "
     "escalation_level, created_at, resolved_at, address_text, assigned_worker_id, "
     "upvote_count, categories(name)"
 )
 
-TREND_SELECT = "status, created_at, resolved_at"
+TREND_SELECT = "status, is_spam, created_at, resolved_at"
 
 
 @app.get("/api/authority/dashboard")
@@ -1628,7 +1618,7 @@ async def get_authority_dashboard(
             workers_res = await asyncio.to_thread(
                 lambda: supabase.table("worker_profiles")
                 .select("worker_id, availability, department, profiles(full_name)")
-                .eq("department", department)
+                .ilike("department", department)
                 .execute()
             )
             workers = workers_res.data or []
@@ -1696,7 +1686,7 @@ async def get_authority_workers(
             "current_complaint_id, joined_at, profiles(full_name, email)"
         )
         if department:
-            worker_query = worker_query.eq("department", department)
+            worker_query = worker_query.ilike("department", department)
 
         workers_res = await asyncio.to_thread(lambda: worker_query.execute())
         worker_rows = workers_res.data or []
@@ -1753,7 +1743,12 @@ async def get_authority_workers(
 
 WORKER_COMPLAINT_SELECT = (
     "id, ticket_id, title, assigned_worker_id, description, address_text, "
-    "severity, status, created_at, resolved_at, location, categories(name)"
+    "severity, status, is_spam, created_at, resolved_at, location, categories(name)"
+)
+
+WORKER_COMPLAINT_SELECT_FALLBACK = (
+    "id, ticket_id, title, assigned_worker_id, description, address_text, "
+    "severity, status, is_spam, created_at, resolved_at, location"
 )
 
 
@@ -1798,41 +1793,63 @@ async def get_worker_dashboard(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Profile check failed: {str(e)}")
 
-    # Step 2: Fetch worker profile, complaints, and activity in parallel
+    # Step 2: Fetch worker profile, complaints, and activity with partial-failure tolerance
+    worker_profile_res = None
+    complaints_res = None
+    history_res = None
+
     try:
-        [worker_profile_res, complaints_res, history_res] = await asyncio.gather(
-            asyncio.to_thread(
-                lambda: supabase.table("worker_profiles")
-                .select("last_location, average_rating, total_reviews")
-                .eq("worker_id", worker_id)
-                .maybe_single()
-                .execute()
-            ),
-            asyncio.to_thread(
-                lambda: supabase.table("complaints")
-                .select(WORKER_COMPLAINT_SELECT)
-                .eq("assigned_worker_id", worker_id)
-                .in_("status", ["assigned", "in_progress", "resolved"])
-                .order("created_at", desc=True)
-                .execute()
-            ),
-            asyncio.to_thread(
-                lambda: supabase.table("ticket_history")
-                .select("id, complaint_id, old_status, new_status, note, created_at")
-                .eq("changed_by", worker_id)
-                .order("created_at", desc=True)
-                .limit(10)
-                .execute()
-            ),
+        worker_profile_res = await asyncio.to_thread(
+            lambda: supabase.table("worker_profiles")
+            .select("last_location, average_rating, total_reviews")
+            .eq("worker_id", worker_id)
+            .maybe_single()
+            .execute()
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Worker dashboard fetch failed: {str(e)}")
+        print(f"Worker dashboard worker_profile fetch failed: {e}")
+
+    try:
+        complaints_res = await asyncio.to_thread(
+            lambda: supabase.table("complaints")
+            .select(WORKER_COMPLAINT_SELECT)
+            .eq("assigned_worker_id", worker_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+    except Exception as e:
+        print(f"Worker dashboard complaints fetch failed, retrying without categories join: {e}")
+        try:
+            complaints_res = await asyncio.to_thread(
+                lambda: supabase.table("complaints")
+                .select(WORKER_COMPLAINT_SELECT_FALLBACK)
+                .eq("assigned_worker_id", worker_id)
+                .order("created_at", desc=True)
+                .execute()
+            )
+        except Exception as fallback_error:
+            print(f"Worker dashboard complaints fallback failed: {fallback_error}")
+
+    try:
+        history_res = await asyncio.to_thread(
+            lambda: supabase.table("ticket_history")
+            .select("id, complaint_id, old_status, new_status, note, created_at")
+            .eq("changed_by", worker_id)
+            .order("created_at", desc=True)
+            .limit(10)
+            .execute()
+        )
+    except Exception as e:
+        print(f"Worker dashboard ticket_history fetch failed: {e}")
+
+    if not worker_profile_res and not complaints_res and not history_res:
+        raise HTTPException(status_code=500, detail="Worker dashboard fetch failed: no worker data could be loaded.")
 
     payload = {
         "workerId": worker_id,
-        "workerProfile": worker_profile_res.data,
-        "complaints": complaints_res.data or [],
-        "activityHistory": history_res.data or [],
+        "workerProfile": worker_profile_res.data if worker_profile_res and worker_profile_res.data else None,
+        "complaints": complaints_res.data if complaints_res and complaints_res.data else [],
+        "activityHistory": history_res.data if history_res and history_res.data else [],
     }
 
     # Cache for 2 minutes (worker data changes frequently with task updates)
@@ -1843,6 +1860,29 @@ async def get_worker_dashboard(
             print(f"Redis write error: {e}")
 
     return {"source": "database", **payload}
+
+
+class WorkerCacheInvalidateRequest(BaseModel):
+    worker_id: Optional[str] = None
+
+@app.post("/api/worker/dashboard/invalidate")
+async def invalidate_worker_dashboard_cache(
+    body: WorkerCacheInvalidateRequest = WorkerCacheInvalidateRequest(),
+    authorization: Optional[str] = Header(None),
+):
+    """Invalidate worker dashboard cache so UI updates instantly after state change.
+    Accepts worker_id from request body (for server-to-server calls) or falls back
+    to extracting it from the Authorization header."""
+    # Prefer explicit worker_id from body (server-to-server), fall back to auth token
+    worker_id = body.worker_id
+    if not worker_id:
+        worker_id = get_citizen_id_from_token(authorization)
+    if redis_client and worker_id:
+        try:
+            redis_client.delete(f"worker:dashboard:{worker_id}")
+        except Exception as e:
+            print(f"Redis invalidation failed: {e}")
+    return {"status": "success"}
 
 
 @app.get("/api/worker/profile")
@@ -2155,6 +2195,73 @@ async def allot_material(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to process allotment: {str(e)}")
+
+
+# =========================================================
+# NOTIFICATIONS (WhatsApp triggers)
+# =========================================================
+
+@app.post("/api/notify/closure-confirmation")
+async def notify_closure_confirmation(
+    request: ClosureConfirmationRequest,
+    authorization: Optional[str] = Header(None)
+):
+    """Worker calls this to notify citizen of pending closure."""
+    get_citizen_id_from_token(authorization) # ensure valid session
+    
+    from whatsapp_webhook import send_text
+
+    try:
+        # Fetch complaint
+        comp_res = await asyncio.to_thread(
+            lambda: supabase.table("complaints")
+            .select("ticket_id, citizen_id")
+            .eq("id", request.complaint_id)
+            .maybe_single()
+            .execute()
+        )
+        if not comp_res.data:
+            raise HTTPException(status_code=404, detail="Complaint not found")
+        
+        citizen_id = comp_res.data.get("citizen_id")
+        ticket_id = comp_res.data.get("ticket_id")
+
+        if not citizen_id:
+            return {"status": "skipped", "reason": "No citizen associated"}
+
+        # Fetch citizen phone
+        prof_res = await asyncio.to_thread(
+            lambda: supabase.table("profiles")
+            .select("phone")
+            .eq("id", citizen_id)
+            .maybe_single()
+            .execute()
+        )
+
+        phone = prof_res.data.get("phone") if prof_res.data else None
+        if not phone:
+            return {"status": "skipped", "reason": "Citizen has no phone number"}
+
+        # Format number for Meta API (requires country code)
+        clean_phone = "".join(filter(str.isdigit, str(phone)))
+        if len(clean_phone) == 10:
+            clean_phone = f"91{clean_phone}"
+
+        msg = (
+            f"🔔 *Ticket Verification Required*\n\n"
+            f"Your ticket *{ticket_id}* has been marked as completed by our team.\n\n"
+            f"Please verify the resolution and confirm if the issue is fixed.\n"
+            f"👉 Confirm or Reject: https://jansamadhan.perkkk.dev/citizen/tickets\n\n"
+            f"_(Reply with 'status {ticket_id}' here to check details)_"
+        )
+
+        await send_text(clean_phone, msg)
+        return {"status": "success", "message": "Notification sent."}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Notification failed: {str(e)}")
 
 
 # =========================================================

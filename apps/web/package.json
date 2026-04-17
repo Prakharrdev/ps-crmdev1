@@ -26,7 +26,8 @@
     "react-leaflet": "^5.0.0",
     "react-leaflet-markercluster": "5.0.0-rc.0",
     "recharts": "^3.8.0",
-    "resend": "^6.9.4"
+    "resend": "^6.9.4",
+    "supabase": "^2.91.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

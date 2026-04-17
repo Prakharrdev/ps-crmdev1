@@ -6,7 +6,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Install Python 3 (defaults to 3.10 on Ubuntu 22.04) and system dependencies
 RUN apt-get update && apt-get install -y \
-    python3 \
+    software-properties-common \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update && apt-get install -y \
+    python3.12 \
     python3-pip \
     libgl1 \
     libglib2.0-0 \

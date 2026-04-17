@@ -7,6 +7,8 @@ import AnimatedAuth, {
   AnimatedAuthProps,
 } from "@/components/AnimatedAuth";
 import Animatedheader, { HeaderTheme } from "@/components/Animatedheader";
+import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 
 // exported so other modules/pages can reuse or tweak the login palette
 export const loginAuthColors: Partial<AnimatedAuthProps> = {
@@ -38,6 +40,17 @@ export const loginAuthColors: Partial<AnimatedAuthProps> = {
 };
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#e4e3e1] dark:bg-[#2c241b]" />}>
+      <LoginContent />
+    </Suspense>
+  )
+}
+
+function LoginContent() {
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get('redirectTo') || undefined;
+  
   const loginHeaderTheme: HeaderTheme = {
     light: {
       bgInitial: (loginAuthColors.backgroundColor as string) || "#e4e3e1",
@@ -65,6 +78,7 @@ export default function LoginPage() {
           rightPanelSubtitle='Log in to your digital command center. Manage workflows, assign tasks, and track real-time progress.'
           leftPanelImage='/Image1.jpg'
           rightPanelImage='/Image2.jpg'
+          redirectTo={redirectTo}
         // text color props can also be overridden here directly if needed
         />
       </main>

@@ -1,0 +1,73 @@
+steps:
+  # 1. Build and Push API Service
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'build-api'
+    args: ['build', '-t', '$_LOCATION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY/crm-api:$COMMIT_SHA', 'apps/api']
+
+  # 2. Build and Push Web Service
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'build-web'
+    args: ['build', '-t', '$_LOCATION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY/crm-web:$COMMIT_SHA', 'apps/web']
+
+  # 3. Build and Push AI Service
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'build-ai'
+    args: ['build', '-t', '$_LOCATION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY/crm-ai:$COMMIT_SHA', '.', '-f', 'ai-service/Dockerfile']
+
+  # Push Images
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'push-images'
+    args: ['push', '--all-tags', '$_LOCATION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY/crm-api']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '--all-tags', '$_LOCATION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY/crm-web']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '--all-tags', '$_LOCATION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY/crm-ai']
+
+  # 4. Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'deploy-api'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'crm-api'
+      - '--image=$_LOCATION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY/crm-api:$COMMIT_SHA'
+      - '--region=$_LOCATION'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'deploy-web'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'crm-web'
+      - '--image=$_LOCATION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY/crm-web:$COMMIT_SHA'
+      - '--region=$_LOCATION'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'deploy-ai'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'crm-ai'
+      - '--image=$_LOCATION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY/crm-ai:$COMMIT_SHA'
+      - '--region=$_LOCATION'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+
+images:
+  - '$_LOCATION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY/crm-api:$COMMIT_SHA'
+  - '$_LOCATION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY/crm-web:$COMMIT_SHA'
+  - '$_LOCATION-docker.pkg.dev/$PROJECT_ID/$_REPOSITORY/crm-ai:$COMMIT_SHA'
+
+substitutions:
+  _LOCATION: us-central1
+  _REPOSITORY: crm-app
+
+options:
+  logging: CLOUD_LOGGING_ONLY

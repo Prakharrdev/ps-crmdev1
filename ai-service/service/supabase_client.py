@@ -137,7 +137,7 @@ def find_duplicate_complaint(
         if digipin:
             complaints_res = (
                 sb.table("complaints")
-                .select("id, digipin, status")
+                .select("id, digipin, status, ticket_id")
                 .eq("digipin", digipin)
                 .in_("status", ["submitted", "assigned", "in_progress", "escalated"])
                 .limit(1)
@@ -146,7 +146,7 @@ def find_duplicate_complaint(
         else:
             complaints_res = (
                 sb.table("complaints")
-                .select("id, digipin, status")
+                .select("id, digipin, status, ticket_id")
                 .eq("latitude", latitude).eq("longitude", longitude)
                 .in_("status", ["submitted", "assigned", "in_progress", "escalated"])
                 .limit(1)
@@ -214,8 +214,27 @@ def create_complaint(data: Dict[str, Any], request_id: Optional[str] = None) -> 
             if not res.data:
                 _diag("create_complaint failed no data returned", request_id)
                 raise Exception("Failed to insert complaint into Supabase")
-            _diag(f"create_complaint success complaint_id={res.data[0].get('id')}", request_id)
-            return res.data[0]
+            created = res.data[0]
+            created_id = created.get("id")
+            if created_id and not created.get("ticket_id"):
+                try:
+                    hydrated = (
+                        sb.table("complaints")
+                        .select("id, ticket_id")
+                        .eq("id", created_id)
+                        .single()
+                        .execute()
+                    )
+                    if hydrated.data and hydrated.data.get("ticket_id"):
+                        created["ticket_id"] = hydrated.data.get("ticket_id")
+                except Exception as hydrate_err:
+                    _diag(f"create_complaint ticket_id hydration skipped error={hydrate_err}", request_id)
+
+            _diag(
+                f"create_complaint success complaint_id={created.get('id')} ticket_id={created.get('ticket_id')}",
+                request_id,
+            )
+            return created
         except Exception as e:
             err_text = str(e)
             missing_col = _extract_missing_column_name(err_text)

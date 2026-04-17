@@ -31,16 +31,15 @@ function statusClasses(status: string): string {
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(true);
-  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationRow[]>([]);
   const [notificationError, setNotificationError] = useState<string | null>(null);
   const [notificationLoading, setNotificationLoading] = useState(true);
   const [citizenId, setCitizenId] = useState<string | null>(null);
+  const [user, setUser] = useState<any>(null);
   const [hasUnreadUpdates, setHasUnreadUpdates] = useState(false);
-  const [globalJsPoints, setGlobalJsPoints] = useState(3500);
+  const [globalJsPoints, setGlobalJsPoints] = useState<number | null>(null);
   const notificationMenuRef = useRef<HTMLDivElement | null>(null);
-  const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const pathname = usePathname();
   const router = useRouter();
 
@@ -56,10 +55,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) {
         setCitizenId(null);
+        setUser(null);
         setNotificationLoading(false);
         return;
       }
       setCitizenId(session.user.id);
+      setUser(session.user);
     };
 
     void bootstrapCitizen();
@@ -72,10 +73,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       if (notificationMenuRef.current && !notificationMenuRef.current.contains(target)) {
         setIsNotificationOpen(false);
       }
-
-      if (profileMenuRef.current && !profileMenuRef.current.contains(target)) {
-        setIsProfileMenuOpen(false);
-      }
     };
 
     document.addEventListener("mousedown", handleClickOutside);
@@ -87,6 +84,32 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     window.addEventListener('update-js-points', handleUpdate);
     return () => window.removeEventListener('update-js-points', handleUpdate);
   }, []);
+
+  useEffect(() => {
+    const fetchPoints = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+
+      try {
+        const response = await fetch("/api/citizen/wallet", {
+          method: "GET",
+          headers: { Authorization: `Bearer ${session.access_token}` },
+          cache: "no-store",
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setGlobalJsPoints(data.wallet.points_balance ?? 0);
+        }
+      } catch (err) {
+        console.error("Failed to fetch JS points:", err);
+      }
+    };
+
+    if (citizenId) {
+      void fetchPoints();
+    }
+  }, [citizenId]);
 
   useEffect(() => {
     if (!citizenId) return;
@@ -175,13 +198,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       }
       return nextValue;
     });
-    setIsProfileMenuOpen(false);
   };
 
-  const toggleProfileMenu = () => {
-    setIsProfileMenuOpen((prev) => !prev);
-    setIsNotificationOpen(false);
-  };
+  const initial = user?.user_metadata?.full_name?.[0] || user?.email?.[0] || 'U';
 
   const citizenNavigation: SidebarNavigationItem[] = [
     {
@@ -247,7 +266,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       textMain: "text-white dark:text-white",
     },
     navigation: citizenNavigation,
-    bottomNavigation: [],
+    bottomNavigation: [
+      { id: "logout", name: "Logout", icon: <LogOut size={20} strokeWidth={2} />, onClick: handleLogout },
+      { id: "profile", name: "Profile", icon: <div className="w-[26px] h-[26px] rounded-full bg-[#f59e0b] dark:bg-[#f59e0b] text-[#111111] flex items-center justify-center font-bold text-xs uppercase shadow-sm">{initial}</div>, href: "/citizen/profile" },
+    ],
   };
 
   return (
@@ -296,7 +318,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   </div>
                   <div className="flex flex-col">
                     <span className="text-[9px] text-amber-700 dark:text-[#C9A84C] font-semibold leading-none mb-0.5">JS POINTS</span>
-                    <span className="text-sm font-bold leading-none text-amber-900 dark:text-white">{globalJsPoints}</span>
+                    <span className="text-sm font-bold leading-none text-amber-900 dark:text-white">
+                      {globalJsPoints === null ? "Loading..." : globalJsPoints.toLocaleString()}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -357,49 +381,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 )}
               </div>
 
-              {/* Profile Menu */}
-              <div ref={profileMenuRef} className="relative">
-                <button
-                  type="button"
-                  aria-haspopup="menu"
-                  aria-expanded={isProfileMenuOpen}
-                  onClick={toggleProfileMenu}
-                  className="h-10 rounded-full border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#1e1e1e] px-3 text-gray-700 dark:text-gray-300 shadow-sm transition-colors hover:bg-gray-50 dark:hover:bg-[#2a2a2a] inline-flex items-center gap-2"
-                >
-                  <UserCircle2 size={18} />
-                  <ChevronDown
-                    size={16}
-                    className={`transition-transform duration-200 ${isProfileMenuOpen ? "rotate-180" : ""}`}
-                  />
-                </button>
 
-                {isProfileMenuOpen && (
-                  <div
-                    role="menu"
-                    aria-label="Profile menu"
-                    className="absolute right-0 z-[2000] mt-2 w-48 rounded-xl border border-gray-200 dark:border-[#2a2a2a] bg-white dark:bg-[#1e1e1e] py-1 shadow-lg"
-                  >
-                    <a
-                      href="/citizen/profile"
-                      role="menuitem"
-                      onClick={() => setIsProfileMenuOpen(false)}
-                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-[#2a2a2a] transition-colors"
-                    >
-                      <UserCircle2 size={16} />
-                      <span>My Profile</span>
-                    </a>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={handleLogout}
-                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-[#2a2a2a] transition-colors"
-                    >
-                      <LogOut size={16} />
-                      <span>Logout</span>
-                    </button>
-                  </div>
-                )}
-              </div>
             </div>
           </div>
         </header>

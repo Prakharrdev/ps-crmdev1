@@ -20,7 +20,9 @@ function statusClasses(status: string): string {
   if (normalized === "submitted") return "bg-amber-100 text-amber-700";
   if (normalized === "assigned") return "bg-blue-100 text-blue-700";
   if (normalized === "in_progress" || normalized === "under_review") return "bg-purple-100 text-purple-700";
-  if (normalized === "resolved") return "bg-green-100 text-green-700";
+  if (normalized === "reopened") return "bg-red-100 text-red-700 font-bold animate-pulse";
+  if (normalized === "pending_closure") return "bg-orange-100 text-orange-700";
+  if (normalized === "resolved" || normalized === "closed") return "bg-green-100 text-green-700";
   if (normalized === "rejected") return "bg-red-100 text-red-700";
   return "bg-gray-100 text-gray-600";
 }
@@ -70,6 +72,32 @@ export default function WorkerTasksPage() {
   const [error,   setError]   = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<{ id: string; ticket_id: string; title: string } | null>(null);
+  const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const urlParams = new URLSearchParams(window.location.search);
+      const taskId = urlParams.get("taskId");
+      if (taskId) {
+        setHighlightedTaskId(taskId);
+        
+        const attemptScroll = () => {
+          const element = document.getElementById(`task-${taskId}`);
+          if (element) {
+            element.scrollIntoView({ behavior: "smooth", block: "center" });
+          }
+        };
+
+        // Try scroll immediately, and also after fetch to ensure it is rendered
+        setTimeout(attemptScroll, 100);
+        setTimeout(attemptScroll, 1000);
+
+        setTimeout(() => {
+          setHighlightedTaskId(null);
+        }, 3000);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     let isActive = true;
@@ -143,7 +171,7 @@ export default function WorkerTasksPage() {
 
     const upsertTask = (prev: ComplaintRow[], incoming: ComplaintRow, currentWorkerId: string): ComplaintRow[] => {
       // Only keep assigned, in_progress, or resolved tickets in this view
-      const isValidStatus = ["assigned", "in_progress", "resolved"].includes(incoming.status || "");
+      const isValidStatus = !!incoming.status;
       const isAssignedToCurrentWorker = incoming.assigned_worker_id === currentWorkerId;
       
       const existingIndex = prev.findIndex((item) => item.id === incoming.id);
@@ -232,7 +260,20 @@ export default function WorkerTasksPage() {
   }, []);
 
   return (
-    <div className="w-full px-4 py-4 sm:px-6">
+    <div className="flex min-h-full flex-col gap-4 overflow-visible lg:gap-5">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-gray-900 dark:text-white sm:text-2xl">Tasks</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">View and manage all your assigned tasks.</p>
+        </div>
+
+        <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+          <span className="rounded-full border border-gray-200 bg-white px-3 py-1 dark:border-[#2a2a2a] dark:bg-[#1e1e1e]">{tasks.length} Total</span>
+          <span className="rounded-full border border-gray-200 bg-white px-3 py-1 dark:border-[#2a2a2a] dark:bg-[#1e1e1e]">{tasks.filter((task) => task.status === 'assigned' || task.status === 'in_progress' || task.status === 'reopened').length} Active</span>
+        </div>
+      </header>
+
+      <div className="w-full px-0 py-0 sm:px-0">
       <section className="rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-[#2a2a2a] dark:bg-[#161616]">
         <div className="overflow-x-auto">
           <div className="min-w-[1100px]">
@@ -252,7 +293,12 @@ export default function WorkerTasksPage() {
                 {tasks.map((task) => (
                   <li
                     key={task.id}
-                    className="grid grid-cols-[150px_2fr_2fr_1.5fr_1fr_1fr_140px] gap-3 px-5 py-4 text-sm text-gray-700 hover:bg-gray-50 transition-colors dark:text-gray-300 dark:hover:bg-[#1e1e1e]"
+                    id={`task-${task.id}`}
+                    className={`grid grid-cols-[150px_2fr_2fr_1.5fr_1fr_1fr_140px] gap-3 px-5 py-4 text-sm text-gray-700 dark:text-gray-300 transition-all duration-500 ease-out ${
+                      highlightedTaskId === task.id 
+                        ? 'bg-amber-100 dark:bg-[#f59e0b]/20 shadow-[inset_0_0_15px_rgba(245,158,11,0.3)] z-10 relative border-l-4 border-amber-500 dark:border-[#f59e0b]' 
+                        : 'hover:bg-gray-50 dark:hover:bg-[#1e1e1e] border-l-4 border-transparent'
+                    }`}
                   >
                       <span className="font-medium text-gray-900 font-mono text-xs sm:text-sm truncate dark:text-gray-200">
                         {task.ticket_id || "N/A"}
@@ -341,6 +387,7 @@ export default function WorkerTasksPage() {
           ticketTitle={selectedTask.title}
         />
       )}
+      </div>
     </div>
   );
 }

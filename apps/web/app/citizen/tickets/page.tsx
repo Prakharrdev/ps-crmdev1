@@ -1,50 +1,99 @@
 "use client";
 
-import { Suspense, useEffect, useState, useRef } from "react";
+import { Suspense, useEffect, useState, useRef, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowUp, Search, X, ChevronDown, Star } from "lucide-react";
+import Link from "next/link";
+import { ArrowUp, Search, X, ChevronDown, Star, MessageSquare, MapPin, ExternalLink } from "lucide-react";
 import { supabase } from "@/src/lib/supabase";
 import type { Database } from "@/src/types/database.types";
 import Rating from "@/components/Rating";
+import TicketDetailClient from "./details/_components/TicketDetailClient";
 
 type ComplaintRow = Database["public"]["Tables"]["complaints"]["Row"];
 type TicketListRow = Pick<
   ComplaintRow,
-  "id" | "ticket_id" | "title" | "address_text" | "assigned_department" | "status" | "created_at" | "upvote_count"
+  "id" | "ticket_id" | "title" | "address_text" | "assigned_department" | "status" | "is_spam" | "created_at" | "upvote_count" | "location"
 > & { rating?: number | null; reviews?: { rating: number } | { rating: number }[] | null };
 
-function formatStatus(status: string): string {
+// ─── Location Parser (EWKB/Hex) ──────────────────────────────────────────────────────────
+
+function parseEwkbHexPoint(hex: string): { lat: number; lng: number } | null {
+  const normalized = hex.trim();
+  if (!/^[0-9a-fA-F]+$/.test(normalized) || normalized.length < 42) return null;
+  try {
+    const bytes = new Uint8Array(normalized.length / 2);
+    for (let i = 0; i < normalized.length; i += 2)
+      bytes[i / 2] = parseInt(normalized.slice(i, i + 2), 16);
+    const view = new DataView(bytes.buffer);
+    const littleEndian = view.getUint8(0) === 1;
+    const typeWithFlags = view.getUint32(1, littleEndian);
+    const hasSrid = (typeWithFlags & 0x20000000) !== 0;
+    const geomType = typeWithFlags & 0x000000ff;
+    if (geomType !== 1) return null;
+    const coordOffset = hasSrid ? 9 : 5;
+    if (bytes.byteLength < coordOffset + 16) return null;
+    const lng = view.getFloat64(coordOffset, littleEndian);
+    const lat = view.getFloat64(coordOffset + 8, littleEndian);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    return { lat, lng };
+  } catch {
+    return null;
+  }
+}
+
+function parseLocation(location: unknown): { lat: number; lng: number } | null {
+  if (!location) return null;
+  if (typeof location === "object") {
+    const o = location as Record<string, unknown>;
+    if (Array.isArray(o.coordinates) && o.coordinates.length >= 2) {
+      const lng = Number(o.coordinates[0]);
+      const lat = Number(o.coordinates[1]);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+    }
+    const latVal = o.lat ?? o.latitude;
+    const lngVal = o.lng ?? o.lon ?? o.longitude;
+    if (latVal !== undefined && lngVal !== undefined) {
+      const lat = Number(latVal); const lng = Number(lngVal);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+    }
+  }
+  if (typeof location === "string") {
+    const ewkb = parseEwkbHexPoint(location);
+    if (ewkb) return ewkb;
+    const m = location.match(/POINT\s*\(\s*([-\d.]+)\s+([-\d.]+)\s*\)/i);
+    if (m) return { lng: Number(m[1]), lat: Number(m[2]) };
+  }
+  return null;
+}
+
+function formatStatus(status: string, is_spam: boolean = false): string {
+  if (is_spam) return "Spam";
   return status
     .split("_")
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
     .join(" ");
 }
 
-function statusClasses(status: string): string {
+function statusClasses(status: string, is_spam: boolean = false): string {
+  if (is_spam) return "bg-red-100 text-red-700";
   const normalized = status.trim().toLowerCase();
   if (normalized === "submitted") return "bg-amber-100 text-amber-700";
   if (normalized === "assigned") return "bg-blue-100 text-blue-700";
   if (normalized === "in_progress" || normalized === "under_review") return "bg-purple-100 text-purple-700";
+  if (normalized === "reopened") return "bg-red-100 text-red-700 font-bold animate-pulse";
+  if (normalized === "pending_closure") return "bg-orange-100 text-orange-700";
   if (normalized === "resolved") return "bg-green-100 text-green-700";
   if (normalized === "rejected") return "bg-red-100 text-red-700";
   return "bg-gray-100 text-gray-600";
 }
-
 function formatReportedTime(timestamp: string): string {
   const date = new Date(timestamp);
-  const now = new Date();
-  const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
-
-  if (diffInSeconds < 60) return "Just now";
-  if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
-  if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
-  if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)}d ago`;
-
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    hour12: true
   }).format(date);
 }
 
@@ -129,6 +178,7 @@ function CitizenTicketsPageContent() {
 
   const [activeHighlight, setActiveHighlight] = useState<string | null>(null);
   const highlightedRef = useRef<HTMLLIElement>(null);
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
 
   const [tickets, setTickets] = useState<TicketListRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -143,6 +193,7 @@ function CitizenTicketsPageContent() {
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const [departmentDropdownOpen, setDepartmentDropdownOpen] = useState(false);
   const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
+  const [hasUpvoted, setHasUpvoted] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (highlightedTicketId && !loading) {
@@ -174,6 +225,16 @@ function CitizenTicketsPageContent() {
       }
 
       setCitizenId(user.id);
+
+      // Fetch user's upvotes
+      const { data: upvotes } = await supabase
+        .from("upvotes")
+        .select("complaint_id")
+        .eq("citizen_id", user.id);
+      
+      if (upvotes) {
+        setHasUpvoted(new Set(upvotes.map(u => u.complaint_id)));
+      }
     };
 
     void bootstrapCitizen();
@@ -214,9 +275,9 @@ function CitizenTicketsPageContent() {
 
         // Use the latest ticket's created_at as the 'since' threshold for delta sync
         const lastSyncTime = localData.length > 0 ? localData[0].created_at : null;
-        
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-        const url = new URL(`${apiUrl}/citizen/tickets`);
+
+        const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://api.jansamadhan.perkkk.dev";
+        const url = new URL(`${API_URL}/citizen/tickets`);
         if (lastSyncTime) {
           url.searchParams.set("since", lastSyncTime);
         }
@@ -229,10 +290,10 @@ function CitizenTicketsPageContent() {
 
         if (!res.ok) throw new Error(`API error: ${res.status}`);
         const { source, tickets: incomingRaw } = await res.json();
-        
+
         // Flatten reviews(rating)
         const incoming = incomingRaw.map((t: any) => {
-          const rating = t.reviews 
+          const rating = t.reviews
             ? (Array.isArray(t.reviews) ? t.reviews[0]?.rating : (t.reviews as any).rating)
             : t.rating;
           return { ...t, rating };
@@ -246,7 +307,7 @@ function CitizenTicketsPageContent() {
             // Merge delta updates (newest first)
             const map = new Map(prev.map(t => [t.id, t]));
             incoming.forEach((t: TicketListRow) => map.set(t.id, t));
-            updated = Array.from(map.values()).sort((a, b) => 
+            updated = Array.from(map.values()).sort((a, b) =>
               new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
             );
           } else {
@@ -261,7 +322,11 @@ function CitizenTicketsPageContent() {
           return updated;
         });
       } catch (err) {
-        console.error("Fetch sync error:", err);
+        if (err instanceof TypeError && err.message === "Failed to fetch") {
+          console.warn("Backend API unreachable. Using local data only.");
+        } else {
+          console.error("Fetch sync error:", err);
+        }
         // We only show a hard error if we don't even have local data
         if (!localData.length) {
           setError("Failed to sync tickets with server.");
@@ -278,8 +343,10 @@ function CitizenTicketsPageContent() {
       address_text: row.address_text,
       assigned_department: row.assigned_department,
       status: row.status,
+      is_spam: row.is_spam,
       created_at: row.created_at,
       upvote_count: row.upvote_count,
+      location: row.location,
     });
 
     const upsertTicket = (prev: TicketListRow[], incoming: TicketListRow): TicketListRow[] => {
@@ -337,19 +404,8 @@ function CitizenTicketsPageContent() {
           setTickets((prev) => prev.filter((item) => item.id !== deletedId));
         }
       )
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "upvotes",
-        },
-        () => {
-          void fetchTickets();
-        }
-      )
       .subscribe((status) => {
-        // Recover quickly from transient realtime channel issues to avoid stale upvote counts.
+        // Recover quickly from transient realtime channel issues.
         if ((status === "CHANNEL_ERROR" || status === "TIMED_OUT") && isActive) {
           void fetchTickets();
         }
@@ -357,12 +413,86 @@ function CitizenTicketsPageContent() {
 
     // PERFORMANCE OPTIMIZATION: Removed 12s polling.
     // Realtime sync via supabase.channel handles updates efficiently.
-
     return () => {
       isActive = false;
       void channel.unsubscribe();
     };
-  }, [citizenId]);
+  }, [citizenId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleUpvote = useCallback(async (id: string, e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    
+    if (!citizenId) return;
+
+    const isUpvoted = hasUpvoted.has(id);
+    const target = tickets.find(t => t.id === id);
+    if (!target) return;
+
+    try {
+      if (isUpvoted) {
+        // Toggle OFF locally
+        setHasUpvoted((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+        setTickets((prev) =>
+          prev.map((t) => (t.id === id ? { ...t, upvote_count: Math.max(0, (t.upvote_count ?? 1) - 1) } : t))
+        );
+
+        // Sync with DB via centralized API
+        const { data: { session } } = await supabase.auth.getSession();
+        const response = await fetch('/api/complaints', {
+          method: 'PATCH',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session?.access_token}`
+          },
+          body: JSON.stringify({ complaint_id: id, action: 'downvote' })
+        });
+        
+        if (!response.ok) throw new Error("Failed to remove upvote");
+          
+      } else {
+        // Toggle ON locally
+        setHasUpvoted((prev) => new Set([...prev, id]));
+        setTickets((prev) =>
+          prev.map((t) => (t.id === id ? { ...t, upvote_count: (t.upvote_count ?? 0) + 1 } : t))
+        );
+
+        // Sync with DB via centralized API
+        const { data: { session } } = await supabase.auth.getSession();
+        const response = await fetch('/api/complaints', {
+          method: 'PATCH',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session?.access_token}`
+          },
+          body: JSON.stringify({ complaint_id: id, action: 'upvote' })
+        });
+        
+        if (!response.ok) throw new Error("Failed to upvote");
+      }
+    } catch (err: any) {
+      console.error("Upvote toggle failed:", err);
+      // Immediate local rollback
+      const wasUpvoted = !hasUpvoted.has(id);
+      setHasUpvoted((prev) => {
+        const next = new Set(prev);
+        if (wasUpvoted) next.add(id); else next.delete(id);
+        return next;
+      });
+      setTickets((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, upvote_count: wasUpvoted ? t.upvote_count + 1 : Math.max(0, t.upvote_count - 1) } : t))
+      );
+      
+      const msg = err?.message || "Check your internet or permissions.";
+      alert(`Upvote failed: ${msg}`);
+    }
+  }, [citizenId, hasUpvoted, tickets]);
 
   // Extract available statuses and departments whenever tickets change
   useEffect(() => {
@@ -395,7 +525,7 @@ function CitizenTicketsPageContent() {
               placeholder="Search by ticket id, title, or address..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 bg-white py-2 pl-10 pr-3 text-sm focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200 dark:border-[#2a2a2a] dark:bg-[#1e1e1e] dark:text-gray-200 dark:placeholder:text-gray-500"
+              className="w-full rounded-lg border border-gray-300 bg-white py-2 pl-10 pr-3 text-sm focus:border-[#b48470] focus:outline-none focus:ring-2 focus:ring-[#b48470]/20 dark:border-[#2a2a2a] dark:bg-[#1e1e1e] dark:text-gray-200 dark:placeholder:text-gray-500"
             />
           </div>
 
@@ -417,9 +547,8 @@ function CitizenTicketsPageContent() {
                       setSortBy("latest");
                       setSortDropdownOpen(false);
                     }}
-                    className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 transition-colors dark:text-gray-300 dark:hover:bg-[#2a2a2a] ${
-                      sortBy === "latest" ? "bg-purple-50 text-purple-700 font-medium dark:bg-purple-900/30 dark:text-purple-300" : ""
-                    }`}
+                    className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 transition-colors dark:text-gray-300 dark:hover:bg-[#2a2a2a] ${sortBy === "latest" ? "bg-[#b48470]/10 text-[#b48470] font-medium dark:bg-[#b48470]/20 dark:text-[#c49a88]" : ""
+                      }`}
                   >
                     Latest
                   </button>
@@ -428,9 +557,8 @@ function CitizenTicketsPageContent() {
                       setSortBy("upvotes");
                       setSortDropdownOpen(false);
                     }}
-                    className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 transition-colors dark:text-gray-300 dark:hover:bg-[#2a2a2a] ${
-                      sortBy === "upvotes" ? "bg-purple-50 text-purple-700 font-medium dark:bg-purple-900/30 dark:text-purple-300" : ""
-                    }`}
+                    className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 transition-colors dark:text-gray-300 dark:hover:bg-[#2a2a2a] ${sortBy === "upvotes" ? "bg-[#b48470]/10 text-[#b48470] font-medium dark:bg-[#b48470]/20 dark:text-[#c49a88]" : ""
+                      }`}
                   >
                     Highest Upvote
                   </button>
@@ -439,9 +567,8 @@ function CitizenTicketsPageContent() {
                       setSortBy("oldest");
                       setSortDropdownOpen(false);
                     }}
-                    className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 transition-colors dark:text-gray-300 dark:hover:bg-[#2a2a2a] ${
-                      sortBy === "oldest" ? "bg-purple-50 text-purple-700 font-medium dark:bg-purple-900/30 dark:text-purple-300" : ""
-                    }`}
+                    className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 transition-colors dark:text-gray-300 dark:hover:bg-[#2a2a2a] ${sortBy === "oldest" ? "bg-[#b48470]/10 text-[#b48470] font-medium dark:bg-[#b48470]/20 dark:text-[#c49a88]" : ""
+                      }`}
                   >
                     Oldest
                   </button>
@@ -465,9 +592,8 @@ function CitizenTicketsPageContent() {
                       setStatusFilter(null);
                       setStatusDropdownOpen(false);
                     }}
-                    className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 transition-colors dark:text-gray-300 dark:hover:bg-[#2a2a2a] ${
-                      statusFilter === null ? "bg-purple-50 text-purple-700 font-medium dark:bg-purple-900/30 dark:text-purple-300" : ""
-                    }`}
+                    className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 transition-colors dark:text-gray-300 dark:hover:bg-[#2a2a2a] ${statusFilter === null ? "bg-[#b48470]/10 text-[#b48470] font-medium dark:bg-[#b48470]/20 dark:text-[#c49a88]" : ""
+                      }`}
                   >
                     All
                   </button>
@@ -478,9 +604,8 @@ function CitizenTicketsPageContent() {
                         setStatusFilter(status);
                         setStatusDropdownOpen(false);
                       }}
-                      className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 transition-colors dark:text-gray-300 dark:hover:bg-[#2a2a2a] ${
-                        statusFilter === status ? "bg-purple-50 text-purple-700 font-medium dark:bg-purple-900/30 dark:text-purple-300" : ""
-                      }`}
+                      className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 transition-colors dark:text-gray-300 dark:hover:bg-[#2a2a2a] ${statusFilter === status ? "bg-[#b48470]/10 text-[#b48470] font-medium dark:bg-[#b48470]/20 dark:text-[#c49a88]" : ""
+                        }`}
                     >
                       {formatStatus(status)}
                     </button>
@@ -505,9 +630,8 @@ function CitizenTicketsPageContent() {
                       setDepartmentFilter(null);
                       setDepartmentDropdownOpen(false);
                     }}
-                    className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 transition-colors dark:text-gray-300 dark:hover:bg-[#2a2a2a] ${
-                      departmentFilter === null ? "bg-purple-50 text-purple-700 font-medium dark:bg-purple-900/30 dark:text-purple-300" : ""
-                    }`}
+                    className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 transition-colors dark:text-gray-300 dark:hover:bg-[#2a2a2a] ${departmentFilter === null ? "bg-[#b48470]/10 text-[#b48470] font-medium dark:bg-[#b48470]/20 dark:text-[#c49a88]" : ""
+                      }`}
                   >
                     All Departments
                   </button>
@@ -518,9 +642,8 @@ function CitizenTicketsPageContent() {
                         setDepartmentFilter(dept);
                         setDepartmentDropdownOpen(false);
                       }}
-                      className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 transition-colors dark:text-gray-300 dark:hover:bg-[#2a2a2a] ${
-                        departmentFilter === dept ? "bg-purple-50 text-purple-700 font-medium dark:bg-purple-900/30 dark:text-purple-300" : ""
-                      }`}
+                      className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-100 transition-colors dark:text-gray-300 dark:hover:bg-[#2a2a2a] ${departmentFilter === dept ? "bg-[#b48470]/10 text-[#b48470] font-medium dark:bg-[#b48470]/20 dark:text-[#c49a88]" : ""
+                        }`}
                     >
                       {dept}
                     </button>
@@ -544,15 +667,15 @@ function CitizenTicketsPageContent() {
 
         <div className="overflow-x-auto flex-1 min-h-0 flex flex-col">
           <div className="min-w-[980px] flex flex-col flex-1 min-h-0">
-            <div className="sticky top-0 z-10 grid grid-cols-[150px_2fr_2fr_1.2fr_1fr_1fr_100px_150px] gap-3 border-b border-gray-200 bg-gray-50 px-5 py-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:border-[#2a2a2a] dark:bg-[#1e1e1e] dark:text-gray-400">
+            <div className="sticky top-0 z-10 grid grid-cols-[130px_2fr_2fr_1.2fr_1fr_1.5fr_100px_120px] gap-3 border-b border-gray-200 bg-gray-50 px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:border-[#2a2a2a] dark:bg-[#1e1e1e] dark:text-gray-400">
               <span>Ticket ID</span>
               <span>Issue Title</span>
               <span>Locality / Address</span>
-              <span>Assigned Department</span>
+              <span>Department</span>
               <span>Status</span>
               <span>Reported Time</span>
-              <span className="text-right">Upvotes</span>
-              <span className="text-center">Action / Rating</span>
+              <span className="text-center">Upvotes</span>
+              <span className="text-center">Action</span>
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto">
@@ -578,98 +701,96 @@ function CitizenTicketsPageContent() {
                       <li
                         key={ticket.id}
                         ref={ticket.id === activeHighlight ? highlightedRef : null}
-                        className={`grid grid-cols-[150px_2fr_2fr_1.2fr_1fr_1fr_100px_150px] gap-3 px-5 py-4 text-sm text-gray-700 transition-all duration-1000 dark:text-gray-300 dark:hover:bg-[#1e1e1e] ${
-                        ticket.id === activeHighlight
-                          ? "bg-purple-100/50 shadow-[0_0_20px_rgba(168,85,247,0.4)] z-10 relative dark:bg-purple-900/40"
-                          : "hover:bg-gray-50"
-                      }`}
-                    >
-                      <span className="font-medium text-gray-900 font-mono text-xs sm:text-sm truncate dark:text-gray-200">
-                        {ticket.ticket_id || "N/A"}
-                      </span>
-
-                      <span className="text-gray-900 font-medium line-clamp-2 leading-snug dark:text-gray-200">
-                        {ticket.title || "Untitled issue"}
-                      </span>
-
-                      <span className="text-gray-600 line-clamp-1 leading-snug cursor-pointer dark:text-gray-400" title={ticket.address_text || "Address unavailable"}>
-                        {extractRelevantAddress(ticket.address_text) || "Address unavailable"}
-                      </span>
-
-                      <span className="text-gray-700 line-clamp-2 leading-snug dark:text-gray-300">
-                        {ticket.assigned_department || "Unassigned"}
-                      </span>
-
-                      <span>
-                        <span className={`inline-flex rounded-md px-2 py-1 text-xs font-medium ${statusClasses(ticket.status || "")}`}>
-                          {formatStatus(ticket.status || "submitted")}
+                        className={`grid grid-cols-[130px_2fr_2fr_1.2fr_1fr_1.5fr_100px_120px] gap-3 px-5 py-4 text-sm text-gray-700 transition-all duration-1000 dark:text-gray-300 dark:hover:bg-[#1e1e1e] ${ticket.id === activeHighlight
+                          ? "bg-[#b48470]/10 shadow-[0_0_20px_rgba(180,132,112,0.3)] z-10 relative dark:bg-[#b48470]/20"
+                          : "hover:bg-gray-50 border-b border-gray-50 dark:border-[#2a2a2a]"
+                          }`}
+                      >
+                        <span className="font-medium text-gray-900 font-mono text-xs sm:text-sm truncate dark:text-gray-200">
+                          {ticket.ticket_id || "N/A"}
                         </span>
-                      </span>
 
-                      <span className="text-gray-500 text-xs sm:text-sm dark:text-gray-400">
-                        {formatReportedTime(ticket.created_at)}
-                      </span>
+                        <span className="text-gray-900 font-bold line-clamp-2 leading-snug dark:text-gray-200">
+                          {ticket.title || "Untitled issue"}
+                        </span>
 
-                      <span className="inline-flex items-center justify-end gap-1 text-gray-700 font-medium dark:text-gray-300">
-                        <ArrowUp size={14} className="text-gray-400 dark:text-gray-500" />
-                        {ticket.upvote_count ?? 0}
-                      </span>
-
-                      <div className="flex items-center justify-center">
-                        {ticket.status === "resolved" ? (
-                          <div className="flex flex-col items-center gap-1">
-                            <Rating 
-                              initialRating={ticket.rating ?? undefined} 
-                              onRate={async (r) => {
-                                try {
-                                  // 1. Get token
-                                  const { data: { session } } = await supabase.auth.getSession();
-                                  const token = session?.access_token;
-                                  if (!token) throw new Error("No session");
-
-                                  // 2. POST to review endpoint
-                                  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-                                  const res = await fetch(`${apiUrl}/api/complaints/review`, {
-                                    method: "POST",
-                                    headers: {
-                                      "Content-Type": "application/json",
-                                      "Authorization": `Bearer ${token}`
-                                    },
-                                    body: JSON.stringify({
-                                      complaint_id: ticket.id,
-                                      rating: r
-                                    })
-                                  });
-
-                                  if (res.ok) {
-                                    // Update locally for instant feedback
-                                    setTickets(prev => prev.map(t => 
-                                      t.id === ticket.id ? { ...t, rating: r } : t
-                                    ));
-                                  } else {
-                                    const err = await res.json();
-                                    alert(err.detail || "Failed to submit rating.");
-                                  }
-                                } catch (err) {
-                                  console.error("Rating submission error:", err);
-                                  alert("An error occurred. Check console for details.");
+                        <div className="flex flex-col gap-1">
+                          <span className="text-gray-600 line-clamp-1 leading-snug dark:text-gray-400" title={ticket.address_text || "Address unavailable"}>
+                            {extractRelevantAddress(ticket.address_text) || "Address unavailable"}
+                          </span>
+                          {ticket.address_text && (() => {
+                            const coords = parseLocation(ticket.location);
+                            return (
+                              <a 
+                                href={coords 
+                                  ? `https://www.google.com/maps/search/?api=1&query=${coords.lat},${coords.lng}`
+                                  : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(ticket.address_text.split('|')[0])}`
                                 }
-                              }} 
-                            />
-                            <span className="text-[10px] text-gray-400">Rate your experience</span>
-                          </div>
-                        ) : (
-                          <span className="text-xs text-gray-400 italic">Pending resolution</span>
-                        )}
-                      </div>
-                    </li>
-                  ))}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="flex items-center gap-1 text-[10px] font-bold text-[#b48470] hover:underline whitespace-nowrap"
+                              >
+                                <ExternalLink size={10} />
+                                Open in Maps
+                              </a>
+                            );
+                          })()}
+                        </div>
+
+                        <span className="text-gray-900 font-medium line-clamp-2 leading-snug dark:text-gray-300">
+                          {ticket.assigned_department || "Unassigned"}
+                        </span>
+
+                          <span>
+                            <span className={`inline-flex rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-tight ${statusClasses(ticket.status || "", ticket.is_spam)}`}>
+                              {formatStatus(ticket.status || "submitted", ticket.is_spam)}
+                            </span>
+                          </span>
+
+                        <span className="text-gray-600 text-xs sm:text-sm dark:text-gray-400">
+                          {formatReportedTime(ticket.created_at)}
+                        </span>
+
+                        <div className="flex items-center justify-center">
+                          <button
+                            onClick={(e) => handleUpvote(ticket.id, e)}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border transition-all ${
+                              hasUpvoted.has(ticket.id)
+                                ? "bg-[#b48470]/10 border-[#b48470]/30 text-[#b48470] dark:bg-[#b48470]/20 dark:border-[#b48470]/40 dark:text-[#c49a88]"
+                                : "bg-white border-gray-200 text-gray-500 hover:border-[#b48470]/30 hover:text-[#b48470] dark:bg-[#1e1e1e] dark:border-[#333] dark:text-gray-400"
+                            }`}
+                          >
+                            <ArrowUp size={14} className={hasUpvoted.has(ticket.id) ? "fill-current" : ""} />
+                            <span className="font-bold text-xs">{ticket.upvote_count ?? 0}</span>
+                          </button>
+                        </div>
+
+                        <div className="flex items-center justify-center">
+                          <button
+                            onClick={() => setSelectedTicketId(ticket.id)}
+                            className="text-[#b48470] hover:text-[#a37562] font-bold italic text-sm transition-colors"
+                          >
+                            View details
+                          </button>
+                        </div>
+                      </li>
+                    ))}
                 </ul>
               )}
             </div>
           </div>
         </div>
       </section>
+
+      {/* Ticket Details Overlay */}
+      {selectedTicketId && (
+        <TicketDetailClient 
+          ticketIdParam={selectedTicketId} 
+          isModal 
+          onClose={() => setSelectedTicketId(null)} 
+        />
+      )}
     </div>
   );
 }

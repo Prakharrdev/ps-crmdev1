@@ -25,23 +25,57 @@ import httpx
 
 
 # =========================================================
-# 1. CONFIGURATION
+# 1. CONFIGURATION & ENVIRONMENT
 # =========================================================
 
 try:
+    # Resolve project root for local development
     ROOT_DIR = Path(__file__).resolve().parents[2]
 except IndexError:
-    ROOT_DIR = Path(__file__).resolve().parent  # Docker: /app
+    ROOT_DIR = Path(__file__).resolve().parent  # Docker fallback
+
+# Load environment variables (overridden by system env in production)
 load_dotenv(ROOT_DIR / ".env", override=False)
 load_dotenv(ROOT_DIR / "apps" / "api" / ".env", override=False)
 load_dotenv(ROOT_DIR / "apps" / "web" / ".env.local", override=False)
 
-GEMINI_API_KEY    = os.getenv("GEMINI_API_KEY")
-GEMINI_PRIMARY_MODEL = os.getenv("GEMINI_PRIMARY_MODEL", "gemini-2.5-flash")
-GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-2.0-flash")
+# Core Keys
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+SUPABASE_URL = (os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL", "")).strip().rstrip("/")
+SUPABASE_SERVICE_KEY = (os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "")).strip()
+
+# Other Config
 MAPPLS_API_KEY = os.getenv("MAPPLS_API_KEY")
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 AI_SERVICE_URL = os.getenv("AI_SERVICE_URL")
+REDIS_URL = os.getenv("REDIS_URL")
+
+# Startup Validation
+if not GEMINI_API_KEY:
+    print("❌ FATAL: GEMINI_API_KEY is not set.")
+if not SUPABASE_URL:
+    print("❌ FATAL: SUPABASE_URL is not set.")
+if not SUPABASE_SERVICE_KEY:
+    print("❌ FATAL: SUPABASE_SERVICE_KEY is not set.")
+
+if not all([GEMINI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY]):
+    raise ValueError("Missing critical environment variables. Check your Railway/system variables.")
+
+# Clients Initialization
+gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+redis_client: Optional[redis.Redis] = None
+if REDIS_URL:
+    try:
+        redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+        # redis_client.ping() # Optional health check
+    except Exception as e:
+        print(f"⚠️  WARNING: Redis connection failed: {e}")
+
+GEMINI_PRIMARY_MODEL = os.getenv("GEMINI_PRIMARY_MODEL", "gemini-2.5-flash")
+GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-2.0-flash")
+
 
 async def send_resend_email(ticket_id: str, title: str, authority: str, severity: str, ward: str, city: str, address: str):
     """Sends an official aesthetic email notification via Resend REST API."""
@@ -127,47 +161,12 @@ async def send_resend_email(ticket_id: str, title: str, authority: str, severity
 
 
 
+
 # =========================================================
-# 1. CONFIGURATION
+# 2. CONSTANTS & CACHES
 # =========================================================
-
-try:
-    ROOT_DIR = Path(__file__).resolve().parents[2]
-except IndexError:
-    ROOT_DIR = Path(__file__).resolve().parent  # Docker: /app
-load_dotenv(ROOT_DIR / ".env", override=False)
-load_dotenv(ROOT_DIR / "apps" / "api" / ".env", override=False)
-load_dotenv(ROOT_DIR / "apps" / "web" / ".env.local", override=False)
-
-GEMINI_API_KEY    = os.getenv("GEMINI_API_KEY")
-GEMINI_PRIMARY_MODEL = os.getenv("GEMINI_PRIMARY_MODEL", "gemini-2.5-flash")
-GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-2.0-flash")
-MAPPLS_API_KEY = os.getenv("MAPPLS_API_KEY")
-_raw_url = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
-SUPABASE_URL = _raw_url.strip().rstrip("/") if _raw_url else None
-_raw_key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
-SUPABASE_SERVICE_KEY = _raw_key.strip() if _raw_key else None
-
-if not GEMINI_API_KEY:
-    raise ValueError("GEMINI_API_KEY environment variable not set.")
-if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-    raise ValueError("SUPABASE_URL and SUPABASE_SERVICE_KEY must be set.")
-
-# Redis Initialization
-REDIS_URL = os.getenv("REDIS_URL")
-redis_client: Optional[redis.Redis] = None
-if REDIS_URL:
-    try:
-        redis_client = redis.from_url(REDIS_URL, decode_responses=True)
-        # Optional: Test connection
-        # redis_client.ping()
-    except Exception as e:
-        print(f"WARNING: Redis connection failed: {e}")
-
-gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 REVERSE_GEOCODE_CACHE: Dict[str, Dict[str, str]] = {}
-ALLOWED_STATUSES = {"submitted", "verified", "assigned", "in_progress", "resolved", "closed"}
+ALLOWED_STATUSES = {"submitted", "verified", "assigned", "in_progress", "pending_closure", "resolved", "closed"}
 DUPLICATE_RADIUS_METERS = 20.0  # Synced with YOLO Reliability Engine
 CCTV_SYSTEM_EMAIL = "cctv.system@jansamadhan.gov.in"
 CCTV_SYSTEM_ID = "00000000-0000-0000-0000-000000000000" # Reserved for auto-tickets

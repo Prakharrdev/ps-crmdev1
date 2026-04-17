@@ -96,34 +96,46 @@ export type Database = {
         Row: {
           created_at: string | null
           digipin: string | null
+          generated_ticket_id: string | null
           id: string
           last_status: string | null
           latitude: number
           longitude: number
           name: string
           road_type: string
+          verification_status: string | null
+          verified_at: string | null
+          verified_by: string | null
           video_url: string | null
         }
         Insert: {
           created_at?: string | null
           digipin?: string | null
+          generated_ticket_id?: string | null
           id?: string
           last_status?: string | null
           latitude: number
           longitude: number
           name: string
           road_type: string
+          verification_status?: string | null
+          verified_at?: string | null
+          verified_by?: string | null
           video_url?: string | null
         }
         Update: {
           created_at?: string | null
           digipin?: string | null
+          generated_ticket_id?: string | null
           id?: string
           last_status?: string | null
           latitude?: number
           longitude?: number
           name?: string
           road_type?: string
+          verification_status?: string | null
+          verified_at?: string | null
+          verified_by?: string | null
           video_url?: string | null
         }
         Relationships: []
@@ -136,6 +148,8 @@ export type Database = {
           assigned_worker_id: string | null
           camera_id: string | null
           category_id: number
+          cctv_verification_status: string | null
+          cctv_verified_at: string | null
           citizen_id: string | null
           city: string
           created_at: string
@@ -174,6 +188,8 @@ export type Database = {
           assigned_worker_id?: string | null
           camera_id?: string | null
           category_id: number
+          cctv_verification_status?: string | null
+          cctv_verified_at?: string | null
           citizen_id?: string | null
           city?: string
           created_at?: string
@@ -212,6 +228,8 @@ export type Database = {
           assigned_worker_id?: string | null
           camera_id?: string | null
           category_id?: number
+          cctv_verification_status?: string | null
+          cctv_verified_at?: string | null
           citizen_id?: string | null
           city?: string
           created_at?: string
@@ -313,6 +331,38 @@ export type Database = {
           },
         ]
       }
+      gamification_wallets: {
+        Row: {
+          lifetime_earned: number
+          lifetime_spent: number
+          points_balance: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          lifetime_earned?: number
+          lifetime_spent?: number
+          points_balance?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          lifetime_earned?: number
+          lifetime_spent?: number
+          points_balance?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gamification_wallets_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       material_requests: {
         Row: {
           complaint_id: string
@@ -387,6 +437,7 @@ export type Database = {
           role: string
           spam_strikes: number
           updated_at: string
+          whatsapp_link_code: string | null
         }
         Insert: {
           aadhar_hash?: string | null
@@ -403,6 +454,7 @@ export type Database = {
           role?: string
           spam_strikes?: number
           updated_at?: string
+          whatsapp_link_code?: string | null
         }
         Update: {
           aadhar_hash?: string | null
@@ -419,6 +471,7 @@ export type Database = {
           role?: string
           spam_strikes?: number
           updated_at?: string
+          whatsapp_link_code?: string | null
         }
         Relationships: []
       }
@@ -471,6 +524,87 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "worker_profiles"
             referencedColumns: ["worker_id"]
+          },
+        ]
+      }
+      reward_catalog: {
+        Row: {
+          active: boolean
+          created_at: string
+          id: string
+          kind: string
+          per_user_limit: number
+          points_cost: number
+          stock_remaining: number | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          kind: string
+          per_user_limit?: number
+          points_cost: number
+          stock_remaining?: number | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          id?: string
+          kind?: string
+          per_user_limit?: number
+          points_cost?: number
+          stock_remaining?: number | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      reward_redemptions: {
+        Row: {
+          created_at: string
+          id: string
+          points_spent: number
+          reward_id: string
+          status: string
+          user_id: string
+          voucher_code: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          points_spent: number
+          reward_id: string
+          status?: string
+          user_id: string
+          voucher_code?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          points_spent?: number
+          reward_id?: string
+          status?: string
+          user_id?: string
+          voucher_code?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reward_redemptions_reward_id_fkey"
+            columns: ["reward_id"]
+            isOneToOne: false
+            referencedRelation: "reward_catalog"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reward_redemptions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -552,7 +686,7 @@ export type Database = {
       }
       ticket_history: {
         Row: {
-          changed_by: string
+          changed_by: string | null
           complaint_id: string
           created_at: string
           id: string
@@ -562,7 +696,7 @@ export type Database = {
           old_status: string | null
         }
         Insert: {
-          changed_by: string
+          changed_by?: string | null
           complaint_id: string
           created_at?: string
           id?: string
@@ -572,7 +706,7 @@ export type Database = {
           old_status?: string | null
         }
         Update: {
-          changed_by?: string
+          changed_by?: string | null
           complaint_id?: string
           created_at?: string
           id?: string
@@ -738,7 +872,24 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      leaderboard_all_time: {
+        Row: {
+          avatar_url: string | null
+          full_name: string | null
+          points: number | null
+          rank: number | null
+          user_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gamification_wallets_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       assign_worker_to_complaint: {
@@ -747,6 +898,10 @@ export type Database = {
           p_complaint_id: string
           p_worker_id: string
         }
+        Returns: Json
+      }
+      award_points: {
+        Args: { p_points: number; p_user_id: string }
         Returns: Json
       }
       check_for_duplicate_report:
@@ -773,6 +928,66 @@ export type Database = {
             }[]
           }
       check_sla_breaches: { Args: never; Returns: number }
+      decrement_upvote_count: {
+        Args: { p_complaint_id: string }
+        Returns: undefined
+      }
+      find_duplicate_complaints_v2: {
+        Args: {
+          p_active_statuses: string[]
+          p_category_id: number
+          p_digipin: string
+          p_lat: number
+          p_lng: number
+          p_radius: number
+        }
+        Returns: {
+          address_text: string | null
+          assigned_department: string | null
+          assigned_officer_id: string | null
+          assigned_worker_id: string | null
+          camera_id: string | null
+          category_id: number
+          cctv_verification_status: string | null
+          cctv_verified_at: string | null
+          citizen_id: string | null
+          city: string
+          created_at: string
+          description: string
+          digipin: string | null
+          effective_severity: Database["public"]["Enums"]["severity_level"]
+          escalation_level: number
+          id: string
+          is_spam: boolean
+          location: unknown
+          photo_count: number | null
+          photo_urls: string[] | null
+          pincode: string | null
+          possible_duplicate: boolean
+          rejection_reason: string | null
+          reopen_count: number
+          reopen_deadline: string | null
+          resolution_note: string | null
+          resolved_at: string | null
+          severity: Database["public"]["Enums"]["severity_level"]
+          sla_breached: boolean
+          sla_deadline: string | null
+          source: Database["public"]["Enums"]["complaint_source"] | null
+          status: Database["public"]["Enums"]["complaint_status"]
+          ticket_id: string
+          title: string
+          updated_at: string
+          upvote_boost: number
+          upvote_count: number
+          ward_name: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "complaints"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       get_category_breakdown: {
         Args: never
         Returns: {
@@ -849,6 +1064,14 @@ export type Database = {
         Args: { p_complaint_id: string }
         Returns: undefined
       }
+      redeem_reward: {
+        Args: { p_reward_id: string; p_user_id: string }
+        Returns: Json
+      }
+      update_complaint_status_citizen: {
+        Args: { p_citizen_id: string; p_complaint_id: string; p_status: string }
+        Returns: Json
+      }
     }
     Enums: {
       complaint_source: "citizen" | "system"
@@ -861,6 +1084,8 @@ export type Database = {
         | "resolved"
         | "rejected"
         | "escalated"
+        | "reopened"
+        | "spam"
       severity_level: "L1" | "L2" | "L3" | "L4"
       worker_availability: "available" | "busy" | "inactive"
     }
@@ -1003,6 +1228,8 @@ export const Constants = {
         "resolved",
         "rejected",
         "escalated",
+        "reopened",
+        "spam",
       ],
       severity_level: ["L1", "L2", "L3", "L4"],
       worker_availability: ["available", "busy", "inactive"],

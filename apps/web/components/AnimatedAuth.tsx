@@ -44,6 +44,7 @@ export interface AnimatedAuthProps {
   signupTitle?: string;
   leftPanelImage?: string;
   rightPanelImage?: string;
+  redirectTo?: string;
 }
 
 const roles = ['admin', 'authority', 'citizen', 'worker'] as const;
@@ -127,6 +128,7 @@ export default function AnimatedAuth({
   signupTitle = 'Sign Up',
   leftPanelImage = '/Authsideimage.jpeg',
   rightPanelImage = '/Authsideimage.jpeg',
+  redirectTo,
 }: AnimatedAuthProps) {
   const { theme } = useTheme();
 
@@ -312,7 +314,7 @@ export default function AnimatedAuth({
     }
 
     setLoading(false);
-    router.push(`/${profile.role}`);
+    router.push(redirectTo || `/${profile.role}`);
   };
 
   const handleSignup = async () => {

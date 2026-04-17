@@ -461,7 +461,7 @@ export function ComplaintDetailPanel({
 }) {
   // getSeverityConfig — reads effective_severity directly, no silent Medium fallback
   const sev = getSeverityConfig(complaint.effective_severity)
-  const st  = STATUS_META[complaint.status]
+  const st  = STATUS_META[complaint.status] || { label: complaint.status, badge: "bg-gray-100 text-gray-500" }
 
   // Can assign/reassign: workers exist + ticket is not terminal
   const canAssign =

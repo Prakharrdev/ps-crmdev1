@@ -169,6 +169,8 @@ const Sidebar: React.FC<SidebarConfig> = ({
   const isDark = theme === 'dark';
 
   const [mounted, setMounted] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const expanded = !isCollapsed || isHovered;
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -205,12 +207,14 @@ const Sidebar: React.FC<SidebarConfig> = ({
       {/* Sidebar Drawer / Static Sidebar */}
       <aside
         ref={sidebarRef}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
         className={`
-          fixed lg:relative top-0 left-0 z-[9999] flex flex-col font-sans transition-all duration-300 ease-in-out
+          fixed lg:relative top-0 left-0 z-[9999] flex flex-col font-sans transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]
           ${disableInternalScroll ? "h-full py-4" : "min-h-screen py-8"}
           ${colors.background} ${colors.border} lg:border-r lg:relative lg:translate-x-0
           ${isOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full"}
-          ${isCollapsed ? "w-20" : "w-64"}
+          ${expanded ? "w-56" : "w-16"}
         `}
       >
         {/* Desktop Collapse Toggle */}
@@ -226,56 +230,62 @@ const Sidebar: React.FC<SidebarConfig> = ({
         {/* make top part scrollable so bottom nav stays visible */}
         <div className={`flex min-h-0 flex-col flex-1 overflow-x-hidden ${disableInternalScroll ? "overflow-y-hidden" : "overflow-y-auto"}`}>
           {/* Logo & Mobile Close Button */}
-          <div className={`flex items-center ${isCollapsed ? "justify-center px-2" : "justify-between px-8"} ${disableInternalScroll ? "mb-6" : "mb-10"} menu-item transition-all duration-300`}>
-            <div className={`flex items-center ${isCollapsed ? "justify-center gap-0" : "gap-3"} transition-all duration-300`}>
+          <div className={`flex items-center ${expanded ? "justify-between px-6" : "justify-center px-2"} ${disableInternalScroll ? "mb-6" : "mb-10"} menu-item transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]`}>
+            <div className={`flex items-center ${expanded ? "gap-3" : "justify-center gap-0"} transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]`}>
               <div className="shrink-0 flex items-center justify-center">
                 {branding.icon}
               </div>
-              <div className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isCollapsed ? "max-w-0 opacity-0" : "max-w-[200px] opacity-100"}`}>
-                <div className={`text-[21px] font-medium leading-tight ${colors.textMain}`}>
-                  {branding.title}
+              <div className={`grid transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${expanded ? "grid-cols-[1fr] opacity-100" : "grid-cols-[0fr] opacity-0"}`}>
+                <div className="overflow-hidden">
+                  <div className={`w-[130px] whitespace-nowrap text-[21px] font-medium leading-tight ${colors.textMain}`}>
+                    {branding.title}
+                  </div>
                 </div>
               </div>
             </div>
             {/* Close button only visible on mobile */}
-            <button onClick={onClose} className={`lg:hidden text-gray-500 hover:text-gray-900 dark:hover:text-white transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#B48470] dark:focus:ring-[#C9A84C] rounded-md ${isCollapsed ? "hidden" : "block"}`}>
+            <button onClick={onClose} className={`lg:hidden text-gray-500 hover:text-gray-900 dark:hover:text-white transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#B48470] dark:focus:ring-[#C9A84C] rounded-md ${expanded ? "block" : "hidden"}`}>
               <X size={24} />
             </button>
           </div>
 
           {/* Main Navigation */}
-          <nav className={`space-y-2 ${isCollapsed ? "px-2" : "px-4"} transition-all duration-300`}>
+          <nav className={`space-y-2 ${expanded ? "px-4" : "px-2"} transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]`}>
             {navigation.map((item) => (
               <div key={item.id} className="relative menu-item">
                 {item.isActive && (
                   <div className={`absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-8 rounded-r-md ${colors.activeIndicator}`} />
                 )}
-                <Link
+                  <Link
                   href={item.href}
                   className={`
-                    flex items-center ${isCollapsed ? "justify-center px-2" : "justify-start px-4"} py-3 ml-2 rounded-xl font-medium transition-all duration-200
+                    flex items-center ${expanded ? "justify-start px-4" : "justify-center px-2"} py-3 rounded-xl font-medium transition-all duration-200
                     focus:outline-none focus:ring-2 focus:ring-inset focus:ring-[#B48470] dark:focus:ring-[#C9A84C]
                     ${item.isActive
                       ? `${colors.activeBg} ${colors.activeText} font-semibold`
                       : `${colors.textMuted} ${colors.textHover} ${colors.bgHover}`
                     }
                   `}
-                  title={isCollapsed ? item.name : undefined}
+                  title={!expanded ? item.name : undefined}
                 >
-                  <div className={`flex items-center ${isCollapsed ? "gap-0" : "gap-4"} transition-all duration-300`}>
+                  <div className={`flex items-center ${expanded ? "gap-4" : "gap-0"} transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]`}>
                     <div className="shrink-0">{item.icon}</div>
-                    <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isCollapsed ? "max-w-0 opacity-0" : "max-w-[200px] opacity-100"}`}>
-                      {item.name}
-                    </span>
+                    <div className={`grid transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${expanded ? "grid-cols-[1fr] opacity-100" : "grid-cols-[0fr] opacity-0"}`}>
+                      <div className="overflow-hidden">
+                        <span className="block w-[130px] whitespace-nowrap">
+                          {item.name}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                  {item.badge && !isCollapsed && (
+                  {item.badge && expanded && (
                     <span className={`ml-auto text-xs font-bold w-5 h-5 flex items-center justify-center rounded-full ${colors.badgeBg} ${colors.badgeText} transition-all duration-300`}>
                       {item.badge}
                     </span>
                   )}
                 </Link>
 
-                {item.badge && isCollapsed && (
+                {item.badge && !expanded && (
                   <div className={`pointer-events-none absolute top-2 right-2 w-2 h-2 rounded-full ${colors.badgeBg} transition-all duration-300 opacity-100 scale-100`} />
                 )}
               </div>
@@ -284,23 +294,27 @@ const Sidebar: React.FC<SidebarConfig> = ({
         </div>
 
         {/* Bottom Navigation */}
-        <div className={`shrink-0 space-y-2 ${isCollapsed ? "px-2" : "px-4"} transition-all duration-300`}>
+        <div className={`shrink-0 space-y-2 ${expanded ? "px-4" : "px-2"} transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]`}>
           <button
             type="button"
             onClick={toggleTheme}
-            className={`menu-item flex w-full items-center ${isCollapsed ? "justify-center px-2 gap-0" : "justify-start px-4 gap-4"} py-3 ml-2 rounded-xl font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-[#B48470] dark:focus:ring-[#C9A84C] ${colors.textMuted} ${colors.textHover} ${colors.bgHover}`}
-            title={isCollapsed ? (isDark ? "Light Mode" : "Dark Mode") : undefined}
+            className={`menu-item text-left flex w-full items-center ${expanded ? "justify-start px-4 gap-4" : "justify-center px-2 gap-0"} py-3 rounded-xl font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-[#B48470] dark:focus:ring-[#C9A84C] ${colors.textMuted} ${colors.textHover} ${colors.bgHover}`}
+            title={!expanded ? (isDark ? "Light Mode" : "Dark Mode") : undefined}
           >
             <div className="shrink-0">
               {mounted && (isDark ? <Sun size={20} strokeWidth={2} /> : <Moon size={20} strokeWidth={2} />)}
             </div>
-            <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isCollapsed ? "max-w-0 opacity-0" : "max-w-[200px] opacity-100"}`}>
-              {mounted && (isDark ? "Light Mode" : "Dark Mode")}
-            </span>
+            <div className={`grid transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${expanded ? "grid-cols-[1fr] opacity-100" : "grid-cols-[0fr] opacity-0"}`}>
+              <div className="overflow-hidden">
+                <span className="block w-[130px] whitespace-nowrap">
+                  {mounted && (isDark ? "Light Mode" : "Dark Mode")}
+                </span>
+              </div>
+            </div>
           </button>
 
           {bottomNavigation.map((item) => {
-            const classes = `menu-item flex items-center ${isCollapsed ? "justify-center px-2 gap-0" : "justify-start px-4 gap-4"} py-3 ml-2 rounded-xl font-medium transition-all duration-300 ${colors.textMuted} ${colors.textHover} ${colors.bgHover}`;
+            const classes = `menu-item flex items-center ${expanded ? "justify-start px-4 gap-4" : "justify-center px-2 gap-0"} py-3 rounded-xl font-medium transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${colors.textMuted} ${colors.textHover} ${colors.bgHover}`;
 
             if (item.onClick) {
               return (
@@ -309,12 +323,16 @@ const Sidebar: React.FC<SidebarConfig> = ({
                   type="button"
                   onClick={item.onClick}
                   className={`${classes} w-full text-left`}
-                  title={isCollapsed ? item.name : undefined}
+                  title={!expanded ? item.name : undefined}
                 >
                   <div className="shrink-0">{item.icon}</div>
-                  <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isCollapsed ? "max-w-0 opacity-0" : "max-w-[200px] opacity-100"}`}>
-                    {item.name}
-                  </span>
+                  <div className={`grid transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${expanded ? "grid-cols-[1fr] opacity-100" : "grid-cols-[0fr] opacity-0"}`}>
+                    <div className="overflow-hidden">
+                      <span className="block w-[130px] whitespace-nowrap">
+                        {item.name}
+                      </span>
+                    </div>
+                  </div>
                 </button>
               );
             }
@@ -324,12 +342,16 @@ const Sidebar: React.FC<SidebarConfig> = ({
                 key={item.id}
                 href={item.href ?? "#"}
                 className={classes}
-                title={isCollapsed ? item.name : undefined}
+                title={!expanded ? item.name : undefined}
               >
                 <div className="shrink-0">{item.icon}</div>
-                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isCollapsed ? "max-w-0 opacity-0" : "max-w-[200px] opacity-100"}`}>
-                  {item.name}
-                </span>
+                <div className={`grid transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${expanded ? "grid-cols-[1fr] opacity-100" : "grid-cols-[0fr] opacity-0"}`}>
+                  <div className="overflow-hidden">
+                    <span className="block w-[150px] whitespace-nowrap">
+                      {item.name}
+                    </span>
+                  </div>
+                </div>
               </Link>
             );
           })}

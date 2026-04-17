@@ -61,12 +61,8 @@ export default function CurrentTicketCard({
               {ticket.ticketId}
             </span>
           </div>
-          <span
-            className={`px-2.5 py-1 rounded-md text-xs font-medium whitespace-nowrap ${statusClasses(
-              ticket.status
-            )}`}
-          >
-            {formatStatus(ticket.status)}
+          <span className={`px-2.5 py-1 rounded-md text-xs font-medium whitespace-nowrap ${ticket.isSpam ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400" : statusClasses(ticket.status)}`}>
+            {ticket.isSpam ? "SPAM" : formatStatus(ticket.status)}
           </span>
         </div>
 
@@ -136,7 +132,7 @@ export default function CurrentTicketCard({
             <div className="absolute left-0 top-full z-50 mt-1 w-[min(18rem,calc(100vw-3rem))] rounded-lg border border-gray-200 bg-white shadow-lg sm:w-64 dark:border-[#3a3a3a] dark:bg-[#1e1e1e]">
               {!noteMode ? (
                 <ul className="py-1">
-                  {ticket.status === "assigned" && (
+                  {(ticket.status === "assigned" || ticket.status === "reopened") && (
                     <li>
                       <button
                         type="button"
@@ -232,21 +228,6 @@ export default function CurrentTicketCard({
             </div>
           )}
         </div>
-
-        <button
-          type="button"
-          onClick={() => onMarkCompleted(ticket.id)}
-          className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-gray-300 sm:w-auto dark:disabled:bg-gray-600"
-          disabled={!canComplete}
-          title={
-            canComplete
-              ? "Mark ticket completed"
-              : "Ticket must be in progress to complete"
-          }
-        >
-          <CheckCircle2 size={16} />
-          Mark Completed
-        </button>
       </div>
     </article>
   );

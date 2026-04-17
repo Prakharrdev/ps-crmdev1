@@ -22,9 +22,7 @@ import AdminNotificationBell from "@/app/admin/_components/AdminNotificationBell
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(true);
-  const [profileOpen, setProfileOpen] = useState(false);
   const [userName, setUserName] = useState("");
-  const profileRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
   const router = useRouter();
 
@@ -37,20 +35,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
-        setProfileOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, []);
+
 
   async function handleLogout() {
     await supabase.auth.signOut();
     router.replace("/login");
   }
+
+  const initials = userName
+    .split(" ")
+    .map(p => p[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase() || "AD";
 
   const adminNavigation: SidebarNavigationItem[] = [
     { id: "dashboard", name: "Dashboard", icon: <LayoutGrid size={20} strokeWidth={2.5} />, href: "/admin", isActive: pathname === "/admin" },
@@ -87,7 +84,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       textMain: "text-white dark:text-white",
     },
     navigation: adminNavigation,
-    bottomNavigation: [],
+    bottomNavigation: [
+      { id: "logout", name: "Logout", icon: <LogOut size={20} strokeWidth={2} />, onClick: handleLogout },
+      { id: "profile", name: "Profile", icon: <div className="w-[26px] h-[26px] rounded-full bg-[#f59e0b] dark:bg-[#f59e0b] text-[#111111] flex items-center justify-center font-bold text-xs uppercase shadow-sm">{initials}</div>, href: "/admin/profile" },
+    ],
   };
 
   // Resolve page title & subtitle based on current route
@@ -143,50 +143,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <div className="flex flex-shrink-0 items-center gap-2 sm:gap-3">
               <AdminNotificationBell />
 
-              <div ref={profileRef} className="relative">
-                <button
-                  type="button"
-                  onClick={() => setProfileOpen((o) => !o)}
-                  className="flex h-10 items-center gap-2 rounded-full border border-gray-200
-                             bg-white px-3 shadow-sm transition-colors
-                             hover:bg-gray-50 dark:border-[#2a2a2a] dark:bg-[#1e1e1e]
-                             dark:hover:bg-[#2a2a2a]"
-                >
-                  <UserCircle2 size={18} className="text-gray-700 dark:text-gray-300" />
-                  <ChevronDown size={16} className={`text-gray-500 dark:text-gray-400 transition-transform duration-200 ${profileOpen ? "rotate-180" : ""}`} />
-                </button>
 
-                {profileOpen && (
-                  <div className="absolute right-0 top-full z-50 mt-2 w-48 overflow-hidden
-                                  rounded-xl border border-gray-200 bg-white shadow-xl
-                                  dark:border-[#2a2a2a] dark:bg-[#1e1e1e]">
-                    <div className="border-b border-gray-100 px-4 py-3 dark:border-[#2a2a2a]">
-                      <p className="truncate text-sm font-semibold text-gray-900 dark:text-white">
-                        {userName}
-                      </p>
-                      <p className="text-[11px] text-gray-400">Admin</p>
-                    </div>
-                    <a
-                      href="/admin/profile"
-                      onClick={() => setProfileOpen(false)}
-                      className="flex w-full items-center gap-3 px-4 py-3 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-[#2a2a2a]"
-                    >
-                      <UserCircle2 size={15} />
-                      My Profile
-                    </a>
-                    <button
-                      type="button"
-                      onClick={handleLogout}
-                      className="flex w-full items-center gap-3 px-4 py-3 text-sm font-medium
-                                 text-red-600 transition-colors hover:bg-red-50
-                                 dark:hover:bg-red-900/20"
-                    >
-                      <LogOut size={15} />
-                      Logout
-                    </button>
-                  </div>
-                )}
-              </div>
             </div>
           </div>
         </header>

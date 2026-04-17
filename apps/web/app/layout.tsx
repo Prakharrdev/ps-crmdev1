@@ -20,21 +20,56 @@ const playfair = Playfair_Display({
 });
 
 export const metadata: Metadata = {
-  title: "JanSamadhan",
+  metadataBase: new URL("https://jansamadhan.perkkk.dev"),
+  title: "Jan Samadhan | Delhi's Public Grievance Portal | Jansamadhan",
   description:
-    "JanSamadhan is a public grievance platform to report civic issues, track complaint status, and connect citizens with the right local authorities.",
+    "Jan Samadhan (Jansamadhan) is Delhi's centralized public grievance platform. Report civic issues, track complaint status, and connect with local authorities in India.",
+  keywords: [
+    "Jan Samadhan",
+    "Jansamadhan",
+    "Jan Samadhan Delhi",
+    "Public Grievance Portal India",
+    "Complaint Tracking System",
+    "Civic Issues Delhi",
+    "Jan Samadhan Status",
+  ],
+  alternates: {
+    canonical: "https://jansamadhan.perkkk.dev",
+  },
   openGraph: {
-    title: "JanSamadhan",
+    title: "Jan Samadhan | Delhi's Public Grievance Portal",
     description:
-      "Report civic issues, track complaint progress, and get connected to the correct department with JanSamadhan.",
+      "Official Jan Samadhan (Jansamadhan) platform for citizens to report and track civic issues in Delhi, India.",
+    url: "https://jansamadhan.perkkk.dev",
     siteName: "JanSamadhan",
+    images: [
+      {
+        url: "https://jansamadhan.perkkk.dev/icon.png",
+        width: 800,
+        height: 600,
+        alt: "Jan Samadhan Emblem",
+      },
+    ],
+    locale: "en_IN",
     type: "website",
   },
   twitter: {
-    card: "summary",
-    title: "JanSamadhan",
+    card: "summary_large_image",
+    title: "Jan Samadhan | Delhi's Public Grievance Portal",
     description:
-      "A civic issue reporting and complaint-tracking platform for citizens and authorities.",
+      "Report civic issues, track progress, and build a better Delhi with Jan Samadhan.",
+    images: ["https://jansamadhan.perkkk.dev/icon.png"],
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-video-preview": -1,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+    },
   },
 };
 
@@ -43,9 +78,29 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "GovernmentOrganization",
+    name: "Jan Samadhan Delhi",
+    url: "https://jansamadhan.perkkk.dev",
+    logo: "https://jansamadhan.perkkk.dev/icon.png",
+    address: {
+      "@type": "PostalAddress",
+      addressLocality: "New Delhi",
+      addressRegion: "Delhi",
+      addressCountry: "India",
+    },
+    serviceType: "Public Grievance Redressal",
+    areaServed: "Delhi",
+  };
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
         <script
           dangerouslySetInnerHTML={{
             __html: `

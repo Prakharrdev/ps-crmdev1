@@ -141,7 +141,7 @@ export default function ProfilePage() {
 
     // Wait for the glitch animation to visually complete, then safely route user
     setTimeout(() => {
-      router.push(`/worker/dashboard`)
+      router.push(`/worker/tasks?taskId=${ticketId}`)
     }, 350)
   }
 
@@ -429,7 +429,7 @@ export default function ProfilePage() {
             </div>
 
             {/* Jan Samadhan Stats Box */}
-            <button
+            <div
               className="glow-border p-5 rounded-lg bg-white dark:bg-black/40 backdrop-blur-md interactive-item text-left w-full relative overflow-hidden group"
               onClick={handleInteraction}
             >
@@ -464,7 +464,7 @@ export default function ProfilePage() {
                   </div>
                 </div>
               </div>
-            </button>
+            </div>
 
           </div>
         </div>
@@ -478,7 +478,7 @@ export default function ProfilePage() {
             <div className="absolute inset-0 bg-[#C9A84C]/5 dark:bg-[#f59e0b]/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
             <div className="relative z-10 flex justify-between items-center mb-4 border-b-2 border-gray-200 dark:border-[#f59e0b]/40 pb-3 w-full">
               <div className="flex items-center gap-3 font-bold text-lg sm:text-xl uppercase tracking-wider w-full">
-                RECENT TICKET ACTIVITY
+                RECENT TASKS
               </div>
               <div className="text-gray-500 dark:text-[#f59e0b]/60"><Terminal size={20} /></div>
             </div>
@@ -488,9 +488,9 @@ export default function ProfilePage() {
               ) : !workerData?.complaints?.length ? (
                 <div className="text-gray-400 dark:text-[#f59e0b]/50 tracking-widest">{">"} NO TICKETS FOUND IN QUERY.</div>
               ) : (
-                workerData.complaints.slice(0, 3).map((ticket:any, i:number) => (
+                [...workerData.complaints].sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 3).map((ticket:any, i:number) => (
                   <button key={ticket.id} onClick={(e) => handleTicketClick(e, ticket.id)} className={`flex flex-wrap gap-x-2 gap-y-1 hover:bg-[#C9A84C]/10 dark:hover:bg-[#f59e0b]/10 p-1 -m-1 rounded transition-colors w-full text-left interactive-item ${i > 0 && ticket.status !== 'submitted' && ticket.status !== 'in_progress' ? 'opacity-80' : ''}`}>
-                    <span className="text-gray-800 dark:text-[#f59e0b] mr-2 flex-shrink-0">{'>'} TICKET #{ticket.ticket_id || ticket.id.slice(0, 6)}:</span>
+                    <span className="text-gray-800 dark:text-[#f59e0b] mr-2 flex-shrink-0">{'>'} TASK #{ticket.ticket_id || ticket.id.slice(0, 6)}:</span>
                     <span className="text-gray-700 dark:text-[#f59e0b]/80 uppercase">Status - {ticket.status?.replace('_', ' ') || "unknown"}</span>
                     <span className="hidden sm:inline"> | </span>
                     <span className="w-full sm:w-auto">{ticket.title}</span>

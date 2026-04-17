@@ -2,7 +2,17 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowUp, ChevronDown, X } from "lucide-react";
+import gsap from "gsap";
+import { 
+  AlertTriangle, 
+  ArrowUp, 
+  ChevronDown, 
+  X, 
+  MapPin, 
+  Share2, 
+  Tag, 
+  Clock 
+} from "lucide-react";
 
 import { useNearbyTickets } from "./_components/useNearbyTickets";
 import { getSeverityConfig } from "./_components/useNearbyTickets";
@@ -73,21 +83,37 @@ export default function NearbyTicketsPage() {
     requestLocation,
   } = useGeolocation();
 
-  const [selectedComplaintId, setSelectedComplaintId] = useState<string | null>(null);
+  const [selectedComplaint, setSelectedComplaint] = useState<MappedComplaint | null>(null);
   const [flyTarget, setFlyTarget] = useState<{ lat: number; lng: number } | null>(null);
 
   const [activeHighlight, setActiveHighlight] = useState<string | null>(null);
   const highlightedRef = useRef<HTMLLIElement>(null);
+  const modalOverlayRef = useRef<HTMLDivElement>(null);
+  const modalContentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (selectedComplaintId) {
-      setActiveHighlight(selectedComplaintId);
+    if (selectedComplaint) {
+      gsap.to(modalOverlayRef.current, { 
+        autoAlpha: 1, 
+        duration: 0.3, 
+        ease: "power2.out" 
+      });
+      gsap.fromTo(modalContentRef.current, 
+        { scale: 0.95, y: 10, opacity: 0 },
+        { scale: 1, y: 0, opacity: 1, duration: 0.4, ease: "back.out(1.4)", delay: 0.05 }
+      );
+    }
+  }, [selectedComplaint?.id]);
+
+  useEffect(() => {
+    if (selectedComplaint?.id) {
+      setActiveHighlight(selectedComplaint.id);
       const timer = setTimeout(() => {
         setActiveHighlight(null);
       }, 3000);
       return () => clearTimeout(timer);
     }
-  }, [selectedComplaintId]);
+  }, [selectedComplaint?.id]);
 
   useEffect(() => {
     if (activeHighlight && highlightedRef.current) {
@@ -190,8 +216,27 @@ export default function NearbyTicketsPage() {
   }, [severityFilter, availableSeverities]);
 
   function handleSelectComplaint(complaint: MappedComplaint) {
-    setSelectedComplaintId(complaint.id);
+    setSelectedComplaint(complaint);
     setFlyTarget({ lat: complaint.lat, lng: complaint.lng });
+  }
+
+  function handleCloseModal() {
+    gsap.to(modalContentRef.current, { scale: 0.95, y: 10, opacity: 0, duration: 0.2, ease: "power2.in" });
+    gsap.to(modalOverlayRef.current, { autoAlpha: 0, duration: 0.2, onComplete: () => {
+      setSelectedComplaint(null);
+    }});
+  }
+
+  function handleShareToX(complaint: MappedComplaint) {
+    const text = `🚨 URGENT: Civic issue at ${complaint.address_text || "unspecified location"}
+Ref: ${complaint.ticket_id || complaint.id.slice(0,8)}
+Category: ${complaint.assigned_department}
+Current Status: ${formatStatus(complaint.status)}
+
+Authorities need to prioritize this! #JanSamadhan #CivicAction`;
+    
+    const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
+    window.open(url, "_blank");
   }
 
   function closeAllDropdowns() {
@@ -221,7 +266,7 @@ export default function NearbyTicketsPage() {
       <div className="shrink-0 border-b border-gray-200 bg-white dark:border-[#2a2a2a] dark:bg-[#1e1e1e]">
         <NearbyTicketsMap
           complaints={filteredComplaints}
-          selectedId={selectedComplaintId}
+          selectedId={selectedComplaint?.id || null}
           flyTarget={flyTarget}
           userLocation={location}
           radiusMeters={radiusMeters}
@@ -425,7 +470,7 @@ export default function NearbyTicketsPage() {
                   <ul className="divide-y divide-gray-100 dark:divide-[#2a2a2a]">
                     {filteredComplaints.map((complaint) => {
                       const severity = getSeverityConfig(complaint.effective_severity || complaint.severity);
-                      const isSelected = selectedComplaintId === complaint.id;
+                      const isSelected = selectedComplaint?.id === complaint.id;
                       const isUpvoted = hasUpvoted.has(complaint.id);
 
                       return (
@@ -433,7 +478,7 @@ export default function NearbyTicketsPage() {
                         key={complaint.id}
                         ref={complaint.id === activeHighlight ? highlightedRef : null}
                         onClick={() => handleSelectComplaint(complaint)}
-                        className={`grid cursor-pointer grid-cols-[150px_2.2fr_1.2fr_1fr_1fr_100px_120px] gap-3 px-4 py-4 text-sm transition-all duration-1000 ${
+                        className={`grid cursor-pointer grid-cols-[150px_2.2fr_1.2fr_1fr_1fr_100px_120px] gap-3 px-4 py-4 text-sm transition-all duration-300 ${
                           complaint.id === activeHighlight
                             ? "bg-purple-100/50 shadow-[0_0_20px_rgba(168,85,247,0.4)] z-10 relative dark:bg-purple-900/40"
                             : isSelected
@@ -469,10 +514,9 @@ export default function NearbyTicketsPage() {
                                 e.stopPropagation();
                                 handleUpvote(complaint.id);
                               }}
-                              disabled={isUpvoted}
                               className={`inline-flex items-center gap-1 rounded-md px-2 py-1 font-medium transition-colors ${
                                 isUpvoted
-                                  ? "cursor-not-allowed bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300"
+                                  ? "bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300"
                                   : "text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-[#2a2a2a]"
                               }`}
                             >
@@ -498,6 +542,111 @@ export default function NearbyTicketsPage() {
             </div>
           </div>
         </section>
+      </div>
+
+      {/* Ticket Detail Modal */}
+      <div 
+        ref={modalOverlayRef}
+        style={{ visibility: 'hidden', opacity: 0 }}
+        className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+        onClick={handleCloseModal}
+      >
+        <div 
+          ref={modalContentRef}
+          className="relative w-full max-w-4xl max-h-[90vh] overflow-hidden rounded-3xl bg-white shadow-2xl flex flex-col md:flex-row dark:bg-[#1a1a1a] dark:border dark:border-[#2a2a2a]"
+          onClick={e => e.stopPropagation()}
+        >
+          {/* Photos Section */}
+          <div className="w-full md:w-2/5 bg-gray-100 dark:bg-[#222]">
+            <img 
+              src={selectedComplaint?.photo_urls?.[0] || "/mocks/media__1775984828664.png"} 
+              className="h-64 md:h-full w-full object-cover"
+              alt="Issue evidence"
+            />
+          </div>
+
+          {/* Details Section */}
+          <div className="flex-1 p-6 md:p-8 flex flex-col overflow-y-auto">
+            <div className="flex justify-between items-start mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-white leading-tight mb-1">
+                  {selectedComplaint?.title}
+                </h2>
+                <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">
+                  Ticket ID: {selectedComplaint?.ticket_id}
+                </p>
+              </div>
+              <button 
+                onClick={handleCloseModal}
+                className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-[#2a2a2a] transition-colors"
+                aria-label="Close modal"
+              >
+                <X size={24} className="text-gray-500" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-6 mb-8">
+              <div className="space-y-1">
+                <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  <Tag size={14} /> Department
+                </span>
+                <p className="text-gray-800 dark:text-gray-200 font-medium">
+                  {selectedComplaint?.assigned_department}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  <Clock size={14} /> Reported
+                </span>
+                <p className="text-gray-800 dark:text-gray-200 font-medium">
+                  {selectedComplaint && formatReportedTime(selectedComplaint.created_at)}
+                </p>
+              </div>
+              <div className="col-span-2 space-y-1">
+                <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  <MapPin size={14} /> Location Details
+                </span>
+                <p className="text-gray-700 dark:text-gray-300 text-sm leading-relaxed">
+                  {selectedComplaint?.address_text || "Geographic coordinates available on map."}
+                </p>
+              </div>
+              <div className="col-span-2 space-y-1">
+                <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  <AlertTriangle size={14} /> Description
+                </span>
+                <p className="text-gray-700 dark:text-gray-300 text-sm leading-relaxed italic border-l-4 border-blue-500 pl-4 py-1 bg-blue-50/50 dark:bg-blue-900/10">
+                  {selectedComplaint?.description}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-auto space-y-4 pt-6 border-t border-gray-100 dark:border-[#2a2a2a]">
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => selectedComplaint && handleUpvote(selectedComplaint.id)}
+                  className={`flex-1 flex items-center justify-center gap-2 py-4 rounded-xl font-bold transition-all transform active:scale-[0.98] ${
+                    hasUpvoted.has(selectedComplaint?.id || "")
+                      ? "bg-purple-100 text-purple-700 border border-purple-200 dark:bg-purple-900/30 dark:text-purple-300"
+                      : "bg-purple-600 text-white hover:bg-purple-700 shadow-lg shadow-purple-600/20"
+                  }`}
+                >
+                  <ArrowUp size={20} className={hasUpvoted.has(selectedComplaint?.id || "") ? "text-purple-600" : ""} />
+                  {hasUpvoted.has(selectedComplaint?.id || "") ? "Voted" : "Upvote"} ({selectedComplaint?.upvote_count})
+                </button>
+                <button 
+                  onClick={() => selectedComplaint && handleShareToX(selectedComplaint)}
+                  className="p-4 rounded-xl border border-gray-200 hover:bg-gray-50 dark:border-[#2a2a2a] dark:hover:bg-[#222] transition-colors"
+                  aria-label="Share escalation to X"
+                >
+                  <Share2 size={24} className="text-gray-600 dark:text-gray-400" />
+                </button>
+              </div>
+              <p className="text-[11px] text-center text-gray-400 bg-gray-50 py-2 rounded-lg dark:bg-[#222]">
+                Your support helps fast-track critical urban issues for authority resolution.
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -11,8 +11,7 @@ import NotificationBell from "@/components/NotificationBell";
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(true);
-  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
-  const profileMenuRef = useRef<HTMLDivElement | null>(null);
+  const [user, setUser] = useState<any>(null);
   const pathname = usePathname();
   const router = useRouter();
 
@@ -21,17 +20,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     router.replace("/login");
   }
 
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (!profileMenuRef.current) return;
-      if (!profileMenuRef.current.contains(event.target as Node)) {
-        setIsProfileMenuOpen(false);
-      }
-    };
 
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) setUser(session.user);
+    });
   }, []);
+
+  const initial = user?.user_metadata?.full_name?.[0] || user?.email?.[0] || 'U';
 
   const sidebarConfig = {
     ...defaultSidebarConfig,
@@ -77,7 +74,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         isActive: pathname === "/worker/profile",
       },
     ],
-    bottomNavigation: [],
+    bottomNavigation: [
+      { id: "logout", name: "Logout", icon: <LogOut size={20} strokeWidth={2} />, onClick: handleLogout },
+      { id: "profile", name: "Profile", icon: <div className="w-[26px] h-[26px] rounded-full bg-[#f59e0b] dark:bg-[#f59e0b] text-[#111111] flex items-center justify-center font-bold text-xs uppercase shadow-sm">{initial}</div>, href: "/worker/profile" },
+    ],
   };
 
   return (
@@ -120,48 +120,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <div className="flex flex-shrink-0 items-center gap-2 sm:gap-3">
               <NotificationBell />
 
-              <div ref={profileMenuRef} className="relative">
-                <button
-                  type="button"
-                  aria-haspopup="menu"
-                  aria-expanded={isProfileMenuOpen}
-                  onClick={() => setIsProfileMenuOpen((prev) => !prev)}
-                  className="inline-flex h-10 items-center gap-2 rounded-full border border-gray-200 bg-white px-3 text-gray-700 shadow-sm transition-colors hover:bg-gray-50 dark:border-[#2a2a2a] dark:bg-[#1e1e1e] dark:text-gray-300 dark:hover:bg-[#2a2a2a]"
-                >
-                  <UserCircle2 size={18} />
-                  <ChevronDown
-                    size={16}
-                    className={`transition-transform duration-200 ${isProfileMenuOpen ? "rotate-180" : ""}`}
-                  />
-                </button>
 
-                {isProfileMenuOpen && (
-                  <div
-                    role="menu"
-                    aria-label="Profile menu"
-                    className="absolute right-0 z-[2000] mt-2 w-48 rounded-xl border border-gray-200 bg-white py-1 shadow-lg dark:border-[#2a2a2a] dark:bg-[#1e1e1e]"
-                  >
-                    <a
-                      href="/worker/profile"
-                      role="menuitem"
-                      onClick={() => setIsProfileMenuOpen(false)}
-                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-[#2a2a2a]"
-                    >
-                      <UserCircle2 size={16} />
-                      <span>My Profile</span>
-                    </a>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={handleLogout}
-                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-[#2a2a2a]"
-                    >
-                      <LogOut size={16} />
-                      <span>Logout</span>
-                    </button>
-                  </div>
-                )}
-              </div>
             </div>
           </div>
         </header>

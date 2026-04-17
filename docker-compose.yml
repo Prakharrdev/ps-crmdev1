@@ -1,0 +1,29 @@
+services:
+  crm-api:
+    build:
+      context: apps/api
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8080"
+    env_file:
+      - .env
+
+  crm-web:
+    build:
+      context: apps/web
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    depends_on:
+      - crm-api
+
+  crm-ai:
+    build:
+      context: .
+      dockerfile: ai-service/Dockerfile
+    ports:
+      - "8001:8000"
+    env_file:
+      - .env

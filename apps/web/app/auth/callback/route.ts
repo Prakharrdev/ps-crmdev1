@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 import type { Database } from '@/src/types/database.types';
+import { gamificationService, GAMIFICATION_CONFIG } from '@/src/lib/gamification';
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
@@ -53,6 +54,8 @@ export async function GET(request: NextRequest) {
     .eq('id', user.id)
     .maybeSingle();
 
+
+
   if (!existing) {
     await supabase.from('profiles').upsert(
       {
@@ -66,6 +69,9 @@ export async function GET(request: NextRequest) {
       },
       { onConflict: 'id' },
     );
+
+    // Login bonus for first-time citizens
+    await gamificationService.awardPoints(user.id, GAMIFICATION_CONFIG.POINTS_LOGIN_BONUS, 'login_bonus');
   }
 
   return NextResponse.redirect(`${origin}/citizen`);

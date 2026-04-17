@@ -64,7 +64,7 @@ function buildAllTrends(
         hourBuckets[lbl].submitted++
         if (c.status === "assigned")    hourBuckets[lbl].assigned++
         if (c.status === "in_progress") hourBuckets[lbl].in_progress++
-        if (c.status === "resolved")    hourBuckets[lbl].resolved++
+        if (c.status === "resolved" && !c.is_spam) hourBuckets[lbl].resolved++
       }
     }
   }
@@ -80,7 +80,7 @@ function buildAllTrends(
         dBuckets[dk].submitted++
         if (c.status === "assigned")    dBuckets[dk].assigned++
         if (c.status === "in_progress") dBuckets[dk].in_progress++
-        if (c.status === "resolved")    dBuckets[dk].resolved++
+        if (c.status === "resolved" && !c.is_spam) dBuckets[dk].resolved++
       }
     }
   }
@@ -101,7 +101,7 @@ function buildAllTrends(
         last30Buckets[lbl].submitted++
         if (c.status === "assigned")    last30Buckets[lbl].assigned++
         if (c.status === "in_progress") last30Buckets[lbl].in_progress++
-        if (c.status === "resolved")    last30Buckets[lbl].resolved++
+        if (c.status === "resolved" && !c.is_spam) last30Buckets[lbl].resolved++
       }
     }
   }
@@ -109,13 +109,15 @@ function buildAllTrends(
 
   // Month trend (6 months)
   const mBuckets = buildSixMonthBuckets()
-  for (const r of trendRows) {
+  for (const r of trendRows as any[]) {
     const mk = monthLabel(new Date(r.created_at))
     if (mBuckets[mk]) {
       mBuckets[mk].submitted++
       if (r.status === "assigned")    mBuckets[mk].assigned++
       if (r.status === "in_progress") mBuckets[mk].in_progress++
-      if (r.status === "resolved" && r.resolved_at) {
+      // For trendRows from backend, we need is_spam there too if we want to filter it correctly.
+      // Assuming trendRows now includes is_spam via the updated TREND_SELECT.
+      if (r.status === "resolved" && r.resolved_at && !r.is_spam) {
         const rk = monthLabel(new Date(r.resolved_at))
         if (mBuckets[rk]) mBuckets[rk].resolved++
       }
@@ -221,10 +223,14 @@ export default function AuthorityDashboardPage() {
     try {
       const cached = localStorage.getItem(CACHE_KEY)
       if (cached) {
-        applyPayload(JSON.parse(cached))
+        const parsed = JSON.parse(cached)
+        applyPayload(parsed)
         setLoading(false)
       }
-    } catch {}
+    } catch (err) {
+      console.warn("Outdated or malformed dashboard cache detected, clearing:", err)
+      try { localStorage.removeItem(CACHE_KEY) } catch {}
+    }
   }, [applyPayload])
 
   // 2. Fresh fetch

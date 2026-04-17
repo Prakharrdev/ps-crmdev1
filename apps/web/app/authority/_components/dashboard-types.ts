@@ -5,9 +5,13 @@ export type ComplaintStatus =
   | "under_review"
   | "assigned"
   | "in_progress"
+  | "pending_closure"
   | "resolved"
   | "rejected"
   | "escalated"
+  | "closed"
+  | "reopened"
+  | "spam"
 
 export type SeverityLevel = "L1" | "L2" | "L3" | "L4"
 
@@ -24,6 +28,7 @@ export type AuthorityComplaintRow = {
   address_text: string | null
   assigned_worker_id: string | null
   upvote_count: number
+  is_spam: boolean
   categories: { name: string } | null
 }
 
@@ -51,7 +56,7 @@ export type DashboardStats = {
 }
 
 export const PENDING_STATUSES:   ComplaintStatus[] = ["submitted", "under_review"]
-export const ACTIVE_STATUSES:    ComplaintStatus[] = ["assigned", "in_progress"]
+export const ACTIVE_STATUSES:    ComplaintStatus[] = ["assigned", "in_progress", "reopened"]
 export const ESCALATED_STATUSES: ComplaintStatus[] = ["escalated"]
 export const URGENT_SEVERITIES:  SeverityLevel[]   = ["L3", "L4"]
 
@@ -119,9 +124,13 @@ export const STATUS_META: Record<ComplaintStatus, { label: string; badge: string
   under_review: { label: "Under Review", badge: "bg-yellow-50 text-yellow-700 ring-1 ring-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-300",  step: 2 },
   assigned:     { label: "Assigned",     badge: "bg-blue-50 text-blue-700 ring-1 ring-blue-200 dark:bg-blue-900/30 dark:text-blue-300",             step: 3 },
   in_progress:  { label: "In Progress",  badge: "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-300",  step: 4 },
+  pending_closure: { label: "Pending Verification", badge: "bg-purple-50 text-purple-700 ring-1 ring-purple-200 dark:bg-purple-900/30 dark:text-purple-300", step: 5 },
   resolved:     { label: "Resolved",     badge: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300", step: 5 },
   rejected:     { label: "Rejected",     badge: "bg-red-50 text-red-600 ring-1 ring-red-200 dark:bg-red-900/30 dark:text-red-400",                  step: 0 },
   escalated:    { label: "Escalated",    badge: "bg-purple-50 text-purple-700 ring-1 ring-purple-200 dark:bg-purple-900/30 dark:text-purple-300",   step: 6 },
+  closed:       { label: "Closed",       badge: "bg-gray-100 text-gray-800 ring-1 ring-gray-200 dark:bg-gray-700 dark:text-gray-200",                 step: 6 },
+  reopened:     { label: "Reopened",     badge: "bg-red-100 text-red-700 ring-1 ring-red-200 font-bold dark:bg-red-900/40 dark:text-red-300 animate-pulse", step: 4 },
+  spam:         { label: "Spam",         badge: "bg-gray-100 text-gray-500 ring-1 ring-gray-200 dark:bg-gray-800 dark:text-gray-400",              step: 0 },
 }
 
 export const STATUS_CHART_COLOR: Record<ComplaintStatus, string> = {
@@ -129,16 +138,30 @@ export const STATUS_CHART_COLOR: Record<ComplaintStatus, string> = {
   under_review: "#f59e0b",
   assigned:     "#3b82f6",
   in_progress:  "#6366f1",
+  pending_closure: "#a855f7",
   resolved:     "#10b981",
   rejected:     "#ef4444",
   escalated:    "#a855f7",
+  closed:       "#6b7280",
+  reopened:     "#ef4444",
+  spam:         "#64748b",
+}
+
+export const UNKNOWN_STATUS_META = {
+  label: "Unknown",
+  badge: "bg-gray-100 text-gray-600 ring-1 ring-gray-200 dark:bg-gray-800 dark:text-gray-300",
+  step: 0,
+}
+
+export function getStatusMeta(status: string | ComplaintStatus) {
+  return STATUS_META[status as ComplaintStatus] ?? UNKNOWN_STATUS_META
 }
 
 // ── SLA helper ────────────────────────────────────────────────────────────────
 
 export function isBreached(deadline: string | null, status: ComplaintStatus): boolean {
   if (!deadline) return false
-  if (status === "resolved" || status === "rejected") return false
+  if (status === "resolved" || status === "rejected" || status === "spam" || status === "closed") return false
   return new Date(deadline) < new Date()
 }
 
@@ -180,7 +203,7 @@ export function computeStats(complaints: AuthorityComplaintRow[]): DashboardStat
     pendingAction:     complaints.filter(c => PENDING_STATUSES.includes(c.status)).length,
     inProgress:        complaints.filter(c => ACTIVE_STATUSES.includes(c.status)).length,
     resolvedThisMonth: complaints.filter(
-      c => c.status === "resolved" && new Date(c.created_at).getTime() >= monthStart
+      c => c.status === "resolved" && !c.is_spam && new Date(c.created_at).getTime() >= monthStart
     ).length,
     slaBreached: complaints.filter(c => isBreached(c.sla_deadline, c.status)).length,
   }
@@ -194,6 +217,8 @@ export function getUrgentTickets(
     .filter(c =>
       c.status !== "resolved" &&
       c.status !== "rejected" &&
+      c.status !== "spam" &&
+      c.status !== "closed" &&
       (ESCALATED_STATUSES.includes(c.status) ||
         URGENT_SEVERITIES.includes(c.effective_severity) ||
         // also catch string-format high/critical from DB
@@ -210,21 +235,32 @@ export function getUrgentTickets(
 
 export function getStatusBreakdown(
   complaints: AuthorityComplaintRow[]
-): { status: ComplaintStatus; label: string; count: number; color: string }[] {
-  const map: Partial<Record<ComplaintStatus, number>> = {}
+): { status: ComplaintStatus | string; label: string; count: number; color: string }[] {
+  const map: Record<string, number> = {}
   for (const c of complaints) {
-    if (c.status === "rejected") continue
-    map[c.status] = (map[c.status] ?? 0) + 1
+    const statusKey = c.status ?? "unknown"
+    if (statusKey === "rejected") continue
+    if (!STATUS_META[statusKey as ComplaintStatus]) {
+      // Unexpected status from backend; keep it in breakdown with a fallback label/color
+      map[statusKey] = (map[statusKey] ?? 0) + 1
+      continue
+    }
+    map[statusKey] = (map[statusKey] ?? 0) + 1
   }
-  return (Object.entries(map) as [ComplaintStatus, number][])
+
+  return Object.entries(map)
     .filter(([, count]) => count > 0)
     .sort((a, b) => b[1] - a[1])
-    .map(([status, count]) => ({
-      status,
-      label: STATUS_META[status].label,
-      count,
-      color: STATUS_CHART_COLOR[status],
-    }))
+    .map(([status, count]) => {
+      const knownStatus = status as ComplaintStatus
+      const meta = STATUS_META[knownStatus]
+      return {
+        status,
+        label: meta?.label ?? `${status}`,
+        count,
+        color: STATUS_CHART_COLOR[knownStatus] ?? "#9ca3af",
+      }
+    })
 }
 
 export function timeAgo(dateStr: string): string {

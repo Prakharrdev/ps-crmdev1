@@ -1,0 +1,43 @@
+id,name,name_hindi,icon,authority_code,authority_full,twitter_handle,twitter_url
+1,Metro Station Issue,मेट्रो स्टेशन,🚇,DMRC,Delhi Metro Rail Corporation,@OfficialDMRC,https://x.com/OfficialDMRC
+2,Metro Track / Safety,मेट्रो ट्रैक,🛤,DMRC,Delhi Metro Rail Corporation,@OfficialDMRC,https://x.com/OfficialDMRC
+3,Escalator / Lift,एस्केलेटर,🏗,DMRC,Delhi Metro Rail Corporation,@OfficialDMRC,https://x.com/OfficialDMRC
+4,Metro Parking,मेट्रो पार्किंग,🅿,DMRC,Delhi Metro Rail Corporation,@OfficialDMRC,https://x.com/OfficialDMRC
+5,Metro Station Hygiene,स्टेशन सफाई,🧹,DMRC,Delhi Metro Rail Corporation,@OfficialDMRC,https://x.com/OfficialDMRC
+6,Metro Property Damage,संपत्ति क्षति,⚠,DMRC,Delhi Metro Rail Corporation,@OfficialDMRC,https://x.com/OfficialDMRC
+7,National Highway Damage,राष्ट्रीय राजमार्ग,🛣,NHAI,National Highways Authority of India,@NHAI_Official,https://x.com/NHAI_Official
+8,Toll Plaza Issue,टोल प्लाजा,🚧,NHAI,National Highways Authority of India,@NHAI_Official,https://x.com/NHAI_Official
+9,Expressway Problem,एक्सप्रेसवे,🚗,NHAI,National Highways Authority of India,@NHAI_Official,https://x.com/NHAI_Official
+10,Highway Bridge Damage,राजमार्ग पुल,🌉,NHAI,National Highways Authority of India,@NHAI_Official,https://x.com/NHAI_Official
+11,State Highway / City Road,राजमार्ग / शहरी सड़क,🛣,PWD,Public Works Department (State),@DelhiPwd,https://x.com/DelhiPwd
+12,Flyover / Overbridge,फ्लाईओवर,🌉,PWD,Public Works Department (State),@DelhiPwd,https://x.com/DelhiPwd
+13,Government Building Issue,सरकारी भवन,🏛,PWD,Public Works Department (State),@DelhiPwd,https://x.com/DelhiPwd
+14,Large Drainage System,बड़ा नाला,🌊,PWD,Public Works Department (State),@DelhiPwd,https://x.com/DelhiPwd
+15,Colony Road / Lane,कॉलोनी सड़क,🏘,MCD,Municipal Corporation of Delhi,@MCD_Delhi,https://x.com/MCD_Delhi
+16,Garbage Collection,कचरा संग्रह,🗑,MCD,Municipal Corporation of Delhi,@MCD_Delhi,https://x.com/MCD_Delhi
+17,Street Sweeping,सफाई,🧹,MCD,Municipal Corporation of Delhi,@MCD_Delhi,https://x.com/MCD_Delhi
+18,Park Maintenance,पार्क,🌳,MCD,Municipal Corporation of Delhi,@MCD_Delhi,https://x.com/MCD_Delhi
+19,Public Toilet,सार्वजनिक शौचालय,🚻,MCD,Municipal Corporation of Delhi,@MCD_Delhi,https://x.com/MCD_Delhi
+20,Local Drain / Sewage,नाला / सीवर,🚰,MCD,Municipal Corporation of Delhi,@MCD_Delhi,https://x.com/MCD_Delhi
+21,Stray Animals,आवारा पशु,🐕,MCD,Municipal Corporation of Delhi,@MCD_Delhi,https://x.com/MCD_Delhi
+22,Street Light (MCD zone),स्ट्रीट लाइट,💡,MCD,Municipal Corporation of Delhi,@MCD_Delhi,https://x.com/MCD_Delhi
+23,Connaught Place / Lutyens Issue,केंद्रीय दिल्ली,🏢,NDMC,New Delhi Municipal Council,@tweetndmc,https://x.com/tweetndmc
+24,NDMC Road / Infrastructure,एनडीएमसी सड़क,🛤,NDMC,New Delhi Municipal Council,@tweetndmc,https://x.com/tweetndmc
+25,NDMC Street Light,एनडीएमसी लाइट,💡,NDMC,New Delhi Municipal Council,@tweetndmc,https://x.com/tweetndmc
+26,Central Govt Residential Zone,आवासीय क्षेत्र,🏠,NDMC,New Delhi Municipal Council,@tweetndmc,https://x.com/tweetndmc
+27,Water Supply Failure,पानी नहीं,💧,DJB,Delhi Jal Board,@DelhiJalBoard,https://x.com/DelhiJalBoard
+28,Water Pipe Leakage,पाइप लीकेज,🔧,DJB,Delhi Jal Board,@DelhiJalBoard,https://x.com/DelhiJalBoard
+29,Sewer Line Blockage,सीवर ब्लॉक,🚰,DJB,Delhi Jal Board,@DelhiJalBoard,https://x.com/DelhiJalBoard
+30,Contaminated Water,दूषित पानी,⚠,DJB,Delhi Jal Board,@DelhiJalBoard,https://x.com/DelhiJalBoard
+31,Power Outage,बिजली कटौती,⚡,DISCOM,BSES / Tata Power Delhi,@bsesdelhi / @tatapower_ddl,https://x.com/bsesdelhi
+32,Transformer Issue,ट्रांसफॉर्मर,🔌,DISCOM,BSES / Tata Power Delhi,@bsesdelhi / @tatapower_ddl,https://x.com/bsesdelhi
+33,Exposed / Fallen Wire,खुला तार,🔴,DISCOM,BSES / Tata Power Delhi,@bsesdelhi / @tatapower_ddl,https://x.com/bsesdelhi
+34,Electricity Pole Damage,बिजली का खंभा,🪫,DISCOM,BSES / Tata Power Delhi,@bsesdelhi / @tatapower_ddl,https://x.com/bsesdelhi
+35,Crime / Safety Issue,अपराध,🚓,DELHI_POLICE,Delhi Police,@DelhiPolice,https://x.com/DelhiPolice
+36,Traffic Signal Problem,ट्रैफिक सिग्नल,🚦,TRAFFIC_POLICE,Traffic Police,@dtptraffic,https://x.com/dtptraffic
+37,Illegal Parking,अवैध पार्किंग,🚗,TRAFFIC_POLICE,Traffic Police,@dtptraffic,https://x.com/dtptraffic
+38,Road Accident Black Spot,दुर्घटना क्षेत्र,⚠,TRAFFIC_POLICE,Traffic Police,@dtptraffic,https://x.com/dtptraffic
+39,Illegal Tree Cutting,पेड़ काटना,🌲,FOREST_DEPT,Delhi Forest Department,@dofwgnctd,https://x.com/dofwgnctd
+40,Air Pollution / Burning,वायु प्रदूषण,🌫,DPCC,Delhi Pollution Control Committee,@DPCC_Pollution,https://x.com/DPCC_Pollution
+41,Noise Pollution,शोर प्रदूषण,📢,DPCC,Delhi Pollution Control Committee,@DPCC_Pollution,https://x.com/DPCC_Pollution
+42,Industrial Waste Dumping,औद्योगिक कचरा,☣,DPCC,Delhi Pollution Control Committee,@DPCC_Pollution,https://x.com/DPCC_Pollution

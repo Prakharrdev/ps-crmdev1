@@ -5,15 +5,31 @@ import { useEffect, useRef, useState } from "react"
 import dynamic from "next/dynamic"
 import { supabase } from "@/src/lib/supabase"
 import { AssignDropdown, ComplaintDetailPanel } from "../_components/ComplaintDetailPanel"
-import { getSeverityConfig } from "../_components/dashboard-types"
+import { getSeverityConfig, getStatusMeta } from "../_components/dashboard-types"
 
 const MapComponent = dynamic(() => import("@/app/MapComponent"), { ssr: false })
 
-type Status = "submitted" | "under_review" | "assigned" | "in_progress" | "resolved" | "rejected" | "escalated"
-type Sev    = string
+type LocalStatus = 
+  | "submitted" 
+  | "under_review" 
+  | "assigned" 
+  | "in_progress" 
+  | "resolved" 
+  | "rejected" 
+  | "escalated" 
+  | "pending_closure" 
+  | "closed" 
+  | "spam" 
+  | "reopened"
+
+type Sev = string
 
 type Complaint = {
-  id: string; ticket_id: string; title: string; status: Status
+  id: string; 
+  ticket_id: string; 
+  title: string; 
+  status: LocalStatus; 
+  is_spam: boolean
   effective_severity: Sev; sla_deadline: string | null
   escalation_level: number; created_at: string; resolved_at: string | null
   address_text: string | null; assigned_worker_id: string | null; upvote_count: number
@@ -26,18 +42,18 @@ const SEV_RANK: Record<string, number> = {
   critical: 4, high: 3, medium: 2, low: 1,
 }
 
-const STATUS_META: Record<Status, { label: string; badge: string }> = {
-  submitted:    { label: "Submitted",    badge: "bg-gray-100 text-gray-600 ring-1 ring-gray-200" },
-  under_review: { label: "Under Review", badge: "bg-amber-50 text-amber-700 ring-1 ring-amber-200" },
-  assigned:     { label: "Assigned",     badge: "bg-blue-50 text-blue-700 ring-1 ring-blue-200" },
-  in_progress:  { label: "In Progress",  badge: "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200" },
-  resolved:     { label: "Resolved",     badge: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" },
-  rejected:     { label: "Rejected",     badge: "bg-red-50 text-red-600 ring-1 ring-red-200" },
-  escalated:    { label: "Escalated",    badge: "bg-purple-50 text-purple-700 ring-1 ring-purple-200" },
-}
-
-const TERMINAL_STATUSES: Status[] = ["resolved", "rejected"]
-const ALL_STATUSES: Status[] = ["submitted", "under_review", "assigned", "in_progress", "resolved", "escalated"]
+const TERMINAL_STATUSES: LocalStatus[] = ["resolved", "rejected", "spam", "closed"]
+const ALL_STATUSES: LocalStatus[] = [
+  "submitted", 
+  "under_review", 
+  "assigned", 
+  "in_progress", 
+  "resolved", 
+  "escalated", 
+  "pending_closure", 
+  "reopened", 
+  "spam"
+]
 const SEV_FILTER_OPTIONS = [
   { key: "L4", label: "Critical" },
   { key: "L3", label: "High" },
@@ -46,12 +62,12 @@ const SEV_FILTER_OPTIONS = [
 ]
 
 const COMPLAINT_SELECT =
-  "id,ticket_id,title,status,effective_severity,sla_deadline," +
+  "id,ticket_id,title,status,is_spam,effective_severity,sla_deadline," +
   "escalation_level,created_at,resolved_at,address_text,assigned_worker_id,upvote_count,categories(name)"
 
-function slaStatus(deadline: string | null, status: Status): { breached: boolean; text: string; pill: string } {
+function slaStatus(deadline: string | null, status: LocalStatus): { breached: boolean; text: string; pill: string } {
   if (!deadline) return { breached: false, text: "—", pill: "text-gray-300" }
-  if (status === "resolved" || status === "rejected") {
+  if (status === "resolved" || status === "rejected" || status === "spam" || status === "closed") {
     return { breached: false, text: "Met", pill: "bg-emerald-50 text-emerald-600" }
   }
   const diff  = new Date(deadline).getTime() - Date.now()
@@ -307,7 +323,7 @@ export default function TrackPage() {
         return [
           c.ticket_id, c.title, c.categories?.name ?? "",
           sev.label,
-          STATUS_META[c.status]?.label ?? c.status,
+          getStatusMeta(c.status).label,
           c.upvote_count ?? 0,
           sla.breached ? `BREACHED (${sla.text})` : sla.text,
           new Date(c.created_at).toLocaleDateString("en-IN"),
@@ -460,11 +476,11 @@ export default function TrackPage() {
           <div className="relative">
             <button onClick={() => { setIsStatOpen(o => !o); setIsSortOpen(false); setIsSevOpen(false) }}
               className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 transition-colors dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
-              {statusFilter === "all" ? "All statuses" : STATUS_META[statusFilter as Status].label}
+              {statusFilter === "all" ? "All statuses" : getStatusMeta(statusFilter as LocalStatus).label}
               <span className="text-[10px] opacity-60">▼</span>
             </button>
             <div className={`absolute right-0 top-full z-50 mt-1 w-40 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800 transition-all duration-200 ${isStatOpen ? "opacity-100 translate-y-0 pointer-events-auto" : "opacity-0 -translate-y-2 pointer-events-none"}`}>
-              {[["all","All statuses"], ...ALL_STATUSES.map(s => [s, STATUS_META[s].label])].map(([v,l]) => (
+              {[["all","All statuses"], ...ALL_STATUSES.map(s => [s, getStatusMeta(s).label])].map(([v,l]) => (
                 <button key={v} onClick={() => { setStatusFilter(v); setIsStatOpen(false) }}
                   className={`block w-full px-3 py-2 text-left text-xs hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${statusFilter===v?"font-semibold text-[#b4725a]":"text-gray-700 dark:text-gray-300"}`}>
                   {l}
@@ -500,7 +516,7 @@ export default function TrackPage() {
                   </td></tr>
                 ) : filtered.map(c => {
                   const sev        = getSeverityConfig(c.effective_severity)
-                  const st         = STATUS_META[c.status]
+                  const st         = getStatusMeta(c.status)
                   const sla        = slaStatus(c.sla_deadline, c.status)
                   const isExpanded = expandedId === c.id
                   const isSelected = selectedId === c.id
@@ -542,8 +558,8 @@ export default function TrackPage() {
 
                       {/* Status */}
                       <td className="px-2.5 py-2 whitespace-nowrap">
-                        <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${st.badge}`}>
-                          {st.label}
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${c.is_spam ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400" : st.badge}`}>
+                          {c.is_spam ? "SPAM" : st.label}
                         </span>
                       </td>
 

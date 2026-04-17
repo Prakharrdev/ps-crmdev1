@@ -183,14 +183,24 @@ export const CameraCard: React.FC<CameraCardProps> = ({
         requestId,
         backend_status: result.status,
         finalStatus,
+        ticket_id: result.ticket_id,
         complaint_id: result.complaint_id,
         diagnostics: result.diagnostics,
         elapsed_ms: Date.now() - startedAt,
       });
 
+      const displayedTicketId = result.ticket_id || result.complaint_id || undefined;
+      console.info('[CCTV_DIAG][TICKET_BAR]', {
+        requestId,
+        finalStatus,
+        ticket_id: result.ticket_id,
+        complaint_id: result.complaint_id,
+        displayedTicketId,
+      });
+
       onUpdate(localData.camera_id, { 
         status: finalStatus,
-        verification_result: result.ticket_id || result.complaint_id || undefined
+        verification_result: displayedTicketId
       });
 
     } catch (err) {
@@ -457,9 +467,26 @@ export const CameraCard: React.FC<CameraCardProps> = ({
 
         {/* Ticket Info Section */}
         {(localData.status === 'Ticket Generated' || localData.status === 'Duplicate Ticket' || localData.status === 'Pending Verification') && localData.verification_result && (
-          <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded border border-blue-200 dark:border-blue-800">
-            <span className="text-[9px] uppercase font-black text-blue-700 dark:text-blue-400 tracking-tighter block mb-1">Generated Ticket</span>
-            <span className="text-[10px] font-mono font-bold text-blue-900 dark:text-blue-300 break-all">
+          <div className={cn(
+            "p-2 rounded border",
+            localData.status === 'Duplicate Ticket'
+              ? "bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800"
+              : "bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800"
+          )}>
+            <span className={cn(
+              "text-[9px] uppercase font-black tracking-tighter block mb-1",
+              localData.status === 'Duplicate Ticket'
+                ? "text-orange-700 dark:text-orange-400"
+                : "text-blue-700 dark:text-blue-400"
+            )}>
+              {localData.status === 'Duplicate Ticket' ? 'Duplicate Of Ticket' : 'Generated Ticket'}
+            </span>
+            <span className={cn(
+              "text-[10px] font-mono font-bold break-all",
+              localData.status === 'Duplicate Ticket'
+                ? "text-orange-900 dark:text-orange-300"
+                : "text-blue-900 dark:text-blue-300"
+            )}>
               {localData.verification_result?.startsWith('DL-') ? localData.verification_result : `ID: ${localData.verification_result?.substring(0, 8)}...`}
             </span>
           </div>

@@ -15,11 +15,25 @@ import {
 import { getSeverityConfig } from "../_components/dashboard-types"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-type Status = "submitted" | "under_review" | "assigned" | "in_progress" | "resolved" | "rejected" | "escalated"
-type Sev    = string
+type LocalStatus = 
+  | "submitted" 
+  | "under_review" 
+  | "assigned" 
+  | "in_progress" 
+  | "resolved" 
+  | "rejected" 
+  | "escalated" 
+  | "pending_closure" 
+  | "closed" 
+  | "reopened" 
+  | "spam"
+
+type Sev = string
 
 type Complaint = {
-  id: string; status: Status; effective_severity: Sev
+  id: string; 
+  status: LocalStatus; 
+  effective_severity: Sev
   sla_deadline: string | null
   created_at: string; resolved_at: string | null
   categories: { name: string } | null; escalation_level: number
@@ -27,19 +41,33 @@ type Complaint = {
 
 const STATUS_COLOR: Record<string, string> = {
   submitted: "#94a3b8", under_review: "#f59e0b", assigned: "#3b82f6",
-  in_progress: "#6366f1", resolved: "#10b981", escalated: "#a855f7",
+  in_progress: "#6366f1", 
+  resolved: "#10b981", 
+  escalated: "#a855f7",
+  reopened: "#ef4444", 
+  spam: "#64748b", 
+  pending_closure: "#a855f7", 
+  closed: "#6b7280",
 }
 const STATUS_LABEL: Record<string, string> = {
-  submitted: "Submitted", under_review: "Under Review", assigned: "Assigned",
-  in_progress: "In Progress", resolved: "Resolved", escalated: "Escalated",
+  submitted: "Submitted", 
+  under_review: "Under Review", 
+  assigned: "Assigned",
+  in_progress: "In Progress", 
+  resolved: "Resolved", 
+  escalated: "Escalated",
+  reopened: "Reopened", 
+  spam: "Spam", 
+  pending_closure: "Pending Verification", 
+  closed: "Closed",
 }
 const CAT_PALETTE = ["#3b82f6","#10b981","#f59e0b","#ef4444","#8b5cf6","#06b6d4","#f97316","#ec4899"]
 const COMPLAINT_SELECT =
   "id,status,effective_severity,sla_deadline,created_at,resolved_at,escalation_level,categories(name)"
 
-function isBreached(deadline: string | null, status: Status): boolean {
+function isBreached(deadline: string | null, status: LocalStatus): boolean {
   if (!deadline) return false
-  if (status === "resolved" || status === "rejected") return false
+  if (status === "resolved" || status === "rejected" || status === "spam" || status === "closed") return false
   return new Date(deadline) < new Date()
 }
 
