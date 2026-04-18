@@ -87,6 +87,22 @@ def get_supabase() -> Client:
         _client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
     return _client
 
+
+def upload_cctv_proof_image(image_data: bytes, filename: str, request_id: Optional[str] = None) -> str:
+    """Upload CCTV proof image to public complaint-photos bucket and return URL."""
+    sb = get_supabase()
+    bucket = "complaint-photos"
+    path = f"complaints/{filename}"
+
+    sb.storage.from_(bucket).upload(
+        path=path,
+        file=image_data,
+        file_options={"content-type": "image/jpeg", "upsert": "true"},
+    )
+    public_url = sb.storage.from_(bucket).get_public_url(path)
+    _diag(f"upload_cctv_proof_image success path={path}", request_id)
+    return public_url
+
 def get_camera(camera_id: str, request_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """Fetch camera details by ID."""
     try:

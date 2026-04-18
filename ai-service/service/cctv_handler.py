@@ -5,7 +5,6 @@ Features:
 2. /cctv/verify - Proof verification (before/after comparison)
 """
 
-from pathlib import Path
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 import json
@@ -34,7 +33,8 @@ try:
         count_detections_in_window,
         get_distinct_timestamps_count,
         count_distinct_detection_days,
-        get_recent_citizen_report
+        get_recent_citizen_report,
+        upload_cctv_proof_image,
     )
 except ModuleNotFoundError:
     from supabase_client import (
@@ -50,7 +50,8 @@ except ModuleNotFoundError:
         count_detections_in_window,
         get_distinct_timestamps_count,
         count_distinct_detection_days,
-        get_recent_citizen_report
+        get_recent_citizen_report,
+        upload_cctv_proof_image,
     )
 
 def _compute_digipin(lat: float, lon: float) -> str:
@@ -168,14 +169,18 @@ class CCTVAutoTicketHandler:
                     from service.main import get_service
                     service = get_service()
                     boxed_img = service.draw_detections(best_frame, [best_det])
-                    
-                    # Store in ai-service/media
-                    media_dir = Path(__file__).resolve().parents[1] / "media" / "cctv_proofs"
-                    media_dir.mkdir(parents=True, exist_ok=True)
+
                     filename = f"ticket_{digipin}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
-                    file_path = media_dir / filename
-                    boxed_img.save(file_path, "JPEG", quality=85)
-                    photo_url = str(file_path.absolute())
+
+                    image_buffer = io.BytesIO()
+                    boxed_img.save(image_buffer, format="JPEG", quality=85)
+                    image_data = image_buffer.getvalue()
+
+                    photo_url = upload_cctv_proof_image(
+                        image_data=image_data,
+                        filename=filename,
+                        request_id=request_id,
+                    )
                 except Exception as e:
                     logger.error(f"[VISUAL EVIDENCE] Processing failed: {e}")
 
