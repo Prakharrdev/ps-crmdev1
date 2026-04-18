@@ -21,6 +21,40 @@ from dotenv import load_dotenv
 # Load .env if present
 load_dotenv()
 
+# ── CUDA diagnostic helper ──────────────────────────────────────────────────
+def _resolve_device(requested: str) -> str:
+    """
+    Validate the requested device and fall back to CPU if GPU is unavailable.
+    Prevents RuntimeError from YOLO when CUDA toolkit version doesn't match
+    the installed torch/onnxruntime build (e.g. CUDA 11.8 image + ORT 1.20 which needs CUDA 12.x).
+    """
+    if requested in ("cpu", "CPU"):
+        return "cpu"
+
+    # Any numeric device string (e.g. "0", "0,1") means GPU was requested
+    try:
+        import torch
+        cuda_available = torch.cuda.is_available()
+        device_count = torch.cuda.device_count()
+        cuda_visible = os.environ.get("CUDA_VISIBLE_DEVICES", "not set")
+        logger.info(f"[DEVICE CHECK] requested={requested} torch.cuda.is_available()={cuda_available} "
+                     f"torch.cuda.device_count()={device_count} CUDA_VISIBLE_DEVICES={cuda_visible}")
+
+        if cuda_available and device_count > 0:
+            logger.info(f"[DEVICE CHECK] GPU validated — using device={requested}")
+            return requested
+        else:
+            logger.warning(f"[DEVICE CHECK] GPU requested (device={requested}) but CUDA is NOT available. "
+                           f"Falling back to device=cpu. Check CUDA toolkit vs library versions.")
+            return "cpu"
+    except ImportError:
+        logger.warning("[DEVICE CHECK] torch not installed — cannot validate GPU. Falling back to cpu.")
+        return "cpu"
+    except Exception as e:
+        logger.warning(f"[DEVICE CHECK] Unexpected error during GPU check: {e}. Falling back to cpu.")
+        return "cpu"
+
+
 @dataclass
 class InferenceConfig:
     """Configuration for YOLO inference. Frozen for System Reliability phase (Mar 24, 2026)."""
@@ -36,6 +70,8 @@ class InferenceConfig:
             self.imgsz = int(os.getenv("IMGSZ", 640))
         if self.device is None:
             self.device = os.getenv("DEVICE", "cpu")
+        # Validate: if GPU was requested but CUDA isn't actually usable, fall back to CPU
+        self.device = _resolve_device(self.device)
 
 
 class OnnxInferenceService:
@@ -54,12 +90,13 @@ class OnnxInferenceService:
             providers = ort.get_available_providers()
             logger.info(f"Available ONNX providers: {providers}")
             if 'CUDAExecutionProvider' in providers:
-                logger.info("Successfully identified CUDA GPU Acceleration!")
+                logger.info("ONNX CUDAExecutionProvider available — GPU acceleration active.")
             else:
-                logger.warning("CUDA not found in ONNX providers. Falling back to CPU.")
+                logger.warning("CUDAExecutionProvider not in ONNX providers. Using CPU provider.")
         except ImportError:
             logger.warning("onnxruntime not found. Skipping GPU diagnostic.")
 
+        logger.info(f"Loading YOLO model from {self.model_path} with device={self.config.device}")
         self.model = YOLO(self.model_path)
 
     def predict_image(self, image_cv2) -> dict[str, Any]:

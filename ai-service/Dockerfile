@@ -1,5 +1,5 @@
-# Use NVIDIA CUDA 11.8 as base for Full GPU Support (Cloud Run compatible)
-FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
+# Use NVIDIA CUDA 12.1 as base — required by onnxruntime-gpu>=1.19 and L4 GPUs
+FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
 
 # Set non-interactive for apt-get
 ENV DEBIAN_FRONTEND=noninteractive
