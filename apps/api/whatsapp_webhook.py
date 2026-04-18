@@ -42,6 +42,7 @@ from shared import (
     _find_active_spatial_duplicate,
     build_complaint_record,
     send_resend_email,
+    build_ticket_details_url,
 )
 
 
@@ -514,6 +515,7 @@ async def confirm_ticket(phone: str, session: dict):
 
     inserted  = response.data[0]
     ticket_id = inserted.get("ticket_id") or inserted.get("id", "PENDING")
+    ticket_details_url = build_ticket_details_url(inserted.get("id"))
 
     SESSIONS.pop(phone, None)   # clear session
 
@@ -523,19 +525,24 @@ async def confirm_ticket(phone: str, session: dict):
         f"🏛 Assigned to: {routed_authority}\n"
         f"📍 {address_text[:80]}\n\n"
         f"You can track your complaint at:\n"
-        f"🔗 https://jansamadhan.perkkk.dev/citizen\n\n"
+        f"🔗 {ticket_details_url}\n\n"
         f"Thank you for helping improve your city! 🙏"
     )
 
     # --- Background Email Notification ---
     asyncio.create_task(send_resend_email(
         ticket_id=ticket_id,
+        complaint_id=inserted.get("id"),
         title=preview["title"],
         authority=routed_authority,
         severity=preview["severity_db"],
         ward=location.get("locality") or "Unknown",
         city=location.get("city") or "Delhi",
-        address=address_text
+        address=address_text,
+        citizen_id=citizen_id,
+        worker_id=None,
+        event_type="complaint_created",
+        status="submitted",
     ))
 
 
@@ -806,7 +813,7 @@ async def send_list_message(phone: str, body_text: str, button_text: str, sectio
         }
     }
     headers = {
-        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Authorization": f"Bearer {get_whatsapp_token()}",
         "Content-Type": "application/json",
     }
     async with httpx.AsyncClient(timeout=10) as client:

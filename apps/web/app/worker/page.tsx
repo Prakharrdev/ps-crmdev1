@@ -35,6 +35,7 @@ type ComplaintWithCategory = {
     | "under_review"
     | "assigned"
     | "in_progress"
+    | "pending_closure"
     | "resolved"
     | "rejected"
     | "escalated"
@@ -42,6 +43,8 @@ type ComplaintWithCategory = {
   created_at: string
   resolved_at: string | null
   location: unknown
+  sla_breached: boolean
+  sla_deadline: string | null
   categories: { name: string } | null
   is_spam: boolean
   camera_id: string | null  // present on CCTV auto-generated tickets
@@ -70,6 +73,8 @@ type WorkerDashboardPayload = {
   }[]
 }
 
+const ACTIONABLE_STATUSES: DashboardTask["status"][] = ["assigned", "reopened", "in_progress", "escalated"]
+
 function transformPayload(payload: WorkerDashboardPayload) {
     const workerLocation = parseLatLng(payload.workerProfile?.last_location)
     const normalizedTasks = (payload.complaints ?? []).map((complaint) => {
@@ -92,6 +97,8 @@ function transformPayload(payload: WorkerDashboardPayload) {
         longitude: complaintLocation?.lng ?? null,
         distanceKm,
         cameraId: complaint.camera_id ?? null,
+        slaBreached: complaint.sla_breached ?? false,
+        slaDeadline: complaint.sla_deadline ?? null,
         isSpam: complaint.is_spam || false,
       } satisfies DashboardTask
     })
@@ -299,15 +306,186 @@ export default function WorkerDashboardPage() {
       completedToday: tasks.filter(
         (task) => task.status === "resolved" && !task.isSpam && task.resolvedAt && new Date(task.resolvedAt).getTime() >= startOfDay,
       ).length,
-      urgent: tasks.filter((task) => task.status !== "resolved" && (task.severity === "L3" || task.severity === "L4")).length,
+      urgent: tasks.filter((task) => ACTIONABLE_STATUSES.includes(task.status) && task.slaBreached).length,
     } satisfies DashboardStats
   }, [tasks])
 
+  const actionableTasks = useMemo(
+    () => tasks.filter((task) => ACTIONABLE_STATUSES.includes(task.status)),
+    [tasks],
+  )
+
   const currentTask = useMemo(() => tasks.find((task) => task.status === "in_progress") ?? null, [tasks])
-  const urgentTask = useMemo(() => (sortedAssignedTasks.length > 0 ? sortedAssignedTasks[0] : null), [sortedAssignedTasks])
-  const pendingTask = useMemo(() => {
-    return currentTask ?? urgentTask ?? sortedAssignedTasks[0] ?? tasks.find((task) => task.status === "assigned" || task.status === "reopened") ?? null
-  }, [currentTask, sortedAssignedTasks, tasks, urgentTask])
+  const urgentTask = useMemo(
+    () =>
+      actionableTasks.find(
+        (task) => task.slaBreached && (task.status === "in_progress" || task.status === "escalated"),
+      ) ??
+      actionableTasks.find((task) => task.slaBreached) ??
+      null,
+    [actionableTasks],
+  )
+
+  const pendingTask = useMemo(() => sortedAssignedTasks[0] ?? null, [sortedAssignedTasks])
+
+  const emitSupervisedSampleEvent = useCallback(
+    async (params: {
+      complaintId: string
+      eventType: "present" | "absent" | "repair_complete"
+      cameraId?: string | null
+      proofPhotoUrl?: string | null
+    }) => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
+        if (!session?.access_token) return
+
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+        const response = await fetch(`${apiUrl}/api/worker/supervised-samples`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            complaint_id: params.complaintId,
+            event_type: params.eventType,
+            camera_id: params.cameraId ?? null,
+            proof_photo_url: params.proofPhotoUrl ?? null,
+            source: "worker_dashboard",
+          }),
+        })
+
+        if (!response.ok) {
+          const bodyText = await response.text().catch(() => "")
+          console.warn("[WORKER][SAMPLE_EVENT] API returned non-200", {
+            complaintId: params.complaintId,
+            eventType: params.eventType,
+            status: response.status,
+            bodyText,
+          })
+          return
+        }
+
+        const result = await response.json().catch(() => null)
+        console.info("[WORKER][SAMPLE_EVENT] emitted", {
+          complaintId: params.complaintId,
+          eventType: params.eventType,
+          result,
+        })
+      } catch (err) {
+        console.warn("[WORKER][SAMPLE_EVENT] emission failed", {
+          complaintId: params.complaintId,
+          eventType: params.eventType,
+          err,
+        })
+      }
+    },
+    [],
+  )
+
+  const notifyComplaintEmail = useCallback(
+    async (params: { complaintId: string; status: string; workerIdOverride?: string | null }) => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
+        if (!session?.access_token) return
+
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+        const response = await fetch(`${apiUrl}/api/notifications/complaint-email`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            complaint_id: params.complaintId,
+            event_type: "status_changed",
+            status: params.status,
+            worker_id_override: params.workerIdOverride ?? undefined,
+          }),
+        })
+
+        if (!response.ok) {
+          const bodyText = await response.text().catch(() => "")
+          console.error("[WORKER] complaint email notification failed", {
+            complaintId: params.complaintId,
+            status: params.status,
+            responseStatus: response.status,
+            bodyText,
+          })
+        }
+      } catch (err) {
+        console.error("[WORKER] complaint email notification error", {
+          complaintId: params.complaintId,
+          status: params.status,
+          err,
+        })
+      }
+    },
+    [],
+  )
+
+  const handleMarkAbsent = useCallback(
+    async (complaintId: string) => {
+      if (!workerId) return
+
+      const task = tasks.find((item) => item.id === complaintId)
+      if (!task) return
+
+      const updates: Record<string, unknown> = {
+        status: "rejected",
+        assigned_worker_id: null,
+        rejection_reason: "worker_absent_confirmed",
+      }
+
+      const { error: complaintError } = await supabase.from("complaints").update(updates).eq("id", complaintId)
+
+      if (complaintError) {
+        setError(`Failed to mark complaint ${task.ticketId} absent.`)
+        return
+      }
+
+      if (task.cameraId) {
+        await supabase.from("cctv_cameras").update({ last_status: "No Issue Detected" }).eq("id", task.cameraId)
+      }
+
+      await supabase.from("ticket_history").insert({
+        changed_by: workerId,
+        complaint_id: complaintId,
+        old_status: task.status,
+        new_status: "rejected",
+        note: "Worker marked ticket absent/no issue detected on site.",
+        is_internal: false,
+      })
+
+      await notifyComplaintEmail({
+        complaintId,
+        status: "rejected",
+        workerIdOverride: workerId,
+      })
+
+      if (task.cameraId) {
+        await emitSupervisedSampleEvent({
+          complaintId,
+          eventType: "absent",
+          cameraId: task.cameraId,
+        })
+      }
+
+      if (task.assignedWorkerId === workerId) {
+        await supabase
+          .from("worker_profiles")
+          .update({ current_complaint_id: null, availability: "available" })
+          .eq("worker_id", workerId)
+      }
+
+      await invalidateAndFetch()
+    },
+    [emitSupervisedSampleEvent, invalidateAndFetch, notifyComplaintEmail, tasks, workerId],
+  )
 
   const updateTaskStatus = useCallback(
     async (complaintId: string, nextStatus: "in_progress" | "pending_closure" | "resolved" | "escalated", note?: string) => {
@@ -342,24 +520,25 @@ export default function WorkerDashboardPage() {
         setError("Task updated, but activity log write failed.")
       }
 
-      try {
-        const { data: { session } } = await supabase.auth.getSession()
-        if (session?.access_token) {
-          const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
-          await fetch(`${apiUrl}/api/worker/dashboard/invalidate`, {
-            method: "POST",
-            headers: { Authorization: `Bearer ${session.access_token}` },
-          })
-        }
-      } catch (err) {
-        console.error("Cache invalidation failed:", err)
-      }
+      await notifyComplaintEmail({
+        complaintId,
+        status: nextStatus,
+        workerIdOverride: workerId,
+      })
 
       if (nextStatus === "in_progress") {
         await supabase
           .from("worker_profiles")
           .update({ current_complaint_id: complaintId, availability: "busy" })
           .eq("worker_id", workerId)
+
+        if (task.cameraId) {
+          await emitSupervisedSampleEvent({
+            complaintId,
+            eventType: "present",
+            cameraId: task.cameraId,
+          })
+        }
       }
 
       // pending_closure: worker stays busy, ticket is awaiting citizen confirmation
@@ -379,9 +558,9 @@ export default function WorkerDashboardPage() {
           .eq("worker_id", workerId)
       }
 
-      fetchDashboardData()
+      await invalidateAndFetch()
     },
-    [fetchDashboardData, tasks, workerId],
+    [emitSupervisedSampleEvent, invalidateAndFetch, notifyComplaintEmail, tasks, workerId],
   )
 
   const handleCompleteTask = useCallback(
@@ -429,9 +608,9 @@ export default function WorkerDashboardPage() {
         return
       }
 
-      fetchDashboardData()
+      await invalidateAndFetch()
     },
-    [fetchDashboardData, tasks, workerId],
+    [invalidateAndFetch, tasks, workerId],
   )
 
   const mapTasks = useMemo(
@@ -439,18 +618,34 @@ export default function WorkerDashboardPage() {
     [tasks, workerId],
   )
 
-  const selectedTask = useMemo(
-    () => (selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) ?? null : null),
-    [selectedTaskId, tasks],
-  )
+  const selectedTask = useMemo(() => {
+    if (!selectedTaskId) return null
+    const task = tasks.find((item) => item.id === selectedTaskId) ?? null
+    if (!task) return null
+    if (!ACTIONABLE_STATUSES.includes(task.status)) return null
+    return task
+  }, [selectedTaskId, tasks])
 
   const handleSelectTask = useCallback((taskId: string) => {
     setSelectedTaskId(taskId)
   }, [])
 
+  const escalatedTask = useMemo(
+    () => actionableTasks.find((task) => task.status === "escalated") ?? null,
+    [actionableTasks],
+  )
+
   const displayTask = useMemo(() => {
-    return selectedTask ?? currentTask ?? urgentTask ?? sortedAssignedTasks[0] ?? tasks[0] ?? null
-  }, [currentTask, selectedTask, sortedAssignedTasks, tasks, urgentTask])
+    return selectedTask ?? currentTask ?? urgentTask ?? escalatedTask ?? null
+  }, [currentTask, escalatedTask, selectedTask, urgentTask])
+
+  useEffect(() => {
+    if (!selectedTaskId) return
+    const selected = tasks.find((task) => task.id === selectedTaskId)
+    if (!selected || !ACTIONABLE_STATUSES.includes(selected.status)) {
+      setSelectedTaskId(null)
+    }
+  }, [selectedTaskId, tasks])
 
   const statsCards = useMemo(
     () => [
@@ -504,8 +699,44 @@ export default function WorkerDashboardPage() {
         }
       }
 
-      // 2. Set next status based on whether it is a CCTV-ticket or normal
-      const nextStatus = displayTask.cameraId ? 'in_progress' : 'pending_closure'
+      // 2. Complaint moves to pending_closure; linked CCTV camera badge moves to Pending Verification.
+      const nextStatus = 'pending_closure'
+
+      // Resolve camera link from DB so existing tickets with missing local camera_id
+      // can still transition the surveillance card to Pending Verification.
+      let resolvedCameraId: string | null = displayTask.cameraId
+      if (!resolvedCameraId) {
+        const { data: complaintRow } = await supabase
+          .from('complaints')
+          .select('camera_id')
+          .eq('id', displayTask.id)
+          .maybeSingle()
+        resolvedCameraId = (complaintRow as { camera_id?: string | null } | null)?.camera_id ?? null
+      }
+
+      if (!resolvedCameraId && displayTask.ticketId) {
+        const { data: cameraRow } = await supabase
+          .from('cctv_cameras')
+          .select('id')
+          .eq('generated_ticket_id', displayTask.ticketId)
+          .maybeSingle()
+
+        resolvedCameraId = (cameraRow as { id?: string } | null)?.id ?? null
+
+        if (resolvedCameraId) {
+          await supabase
+            .from('complaints')
+            .update({ camera_id: resolvedCameraId })
+            .eq('id', displayTask.id)
+        }
+      }
+
+      console.info('[WORKER][COMPLETE] CCTV linkage resolution', {
+        complaintId: displayTask.id,
+        ticketId: displayTask.ticketId,
+        resolvedCameraId,
+        sourceCameraId: displayTask.cameraId,
+      })
 
       // 3. Update complaint status + store proof URL
       const updatePayload: Record<string, unknown> = {
@@ -525,7 +756,7 @@ export default function WorkerDashboardPage() {
       }
 
       // 4. Trigger Notifications if normal ticket
-      if (!displayTask.cameraId) {
+      if (!resolvedCameraId) {
         try {
           const { data: { session } } = await supabase.auth.getSession()
           if (session?.access_token) {
@@ -545,14 +776,20 @@ export default function WorkerDashboardPage() {
       }
 
       // 5. If this is a CCTV ticket, trigger Pending Verification on the camera card
-      if (displayTask.cameraId) {
+      if (resolvedCameraId) {
         const sbAny = supabase as any
         const { error: camErr } = await sbAny
           .from('cctv_cameras')
-          .update({ last_status: 'Pending Verification' })
-          .eq('id', displayTask.cameraId)
+          .update({ last_status: 'Pending Verification', verification_status: 'pending' })
+          .eq('id', resolvedCameraId)
         if (camErr) {
           console.error('[WORKER] camera status update error:', camErr)
+        } else {
+          console.info('[WORKER][COMPLETE] Camera moved to Pending Verification', {
+            complaintId: displayTask.id,
+            ticketId: displayTask.ticketId,
+            cameraId: resolvedCameraId,
+          })
         }
       }
 
@@ -563,15 +800,30 @@ export default function WorkerDashboardPage() {
           complaint_id: displayTask.id,
           old_status: displayTask.status,
           new_status: nextStatus,
-          note: completionNote || (displayTask.cameraId ? 'Worker marked repair complete. Awaiting CCTV verification.' : 'Worker marked complete. Awaiting citizen confirmation.'),
+          note: completionNote || (resolvedCameraId ? 'Worker marked repair complete. Awaiting CCTV verification.' : 'Worker marked complete. Awaiting citizen confirmation.'),
           is_internal: false,
+        })
+      }
+
+      await notifyComplaintEmail({
+        complaintId: displayTask.id,
+        status: nextStatus,
+        workerIdOverride: workerId,
+      })
+
+      if (proofPhotoUrl && resolvedCameraId) {
+        await emitSupervisedSampleEvent({
+          complaintId: displayTask.id,
+          eventType: "repair_complete",
+          cameraId: resolvedCameraId,
+          proofPhotoUrl,
         })
       }
 
       setIsCompletionModalOpen(false)
       setCompletionNote('')
       setProofPhoto(null)
-      fetchDashboardData()
+      await invalidateAndFetch()
     } catch (err) {
       console.error('[WORKER] handleConfirmComplete error:', err)
       setError('Unexpected error. Please try again.')
@@ -635,6 +887,7 @@ export default function WorkerDashboardPage() {
                   onStatusChange={async (ticketId, newStatus) => {
                     await updateTaskStatus(ticketId, newStatus as "in_progress" | "pending_closure" | "resolved" | "escalated")
                   }}
+                  onMarkAbsent={handleMarkAbsent}
                   onMarkCompleted={(_ticketId) => setIsCompletionModalOpen(true)}
                 />
               </section>
@@ -644,7 +897,7 @@ export default function WorkerDashboardPage() {
               <section className="flex flex-1 flex-col rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-[#2a2a2a] dark:bg-[#1e1e1e]">
                 <div className="mb-3 flex items-center justify-between">
                   <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Pending Ticket</h2>
-                  <span className="text-xs text-gray-400 dark:text-gray-500">Next up</span>
+                  <span className="text-xs text-gray-400 dark:text-gray-500">Live status</span>
                 </div>
                 <PendingTicketCard
                   ticket={pendingTask}
@@ -661,6 +914,7 @@ export default function WorkerDashboardPage() {
                   onStatusChange={async (ticketId, newStatus) => {
                     await updateTaskStatus(ticketId, newStatus as "in_progress" | "pending_closure" | "resolved" | "escalated")
                   }}
+                  onMarkAbsent={handleMarkAbsent}
                   onMarkCompleted={(_ticketId) => setIsCompletionModalOpen(true)}
                 />
               </section>

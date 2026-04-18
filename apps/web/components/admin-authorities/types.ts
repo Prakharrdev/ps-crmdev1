@@ -24,6 +24,7 @@ export type AuthorityRecord = {
 export type ComplaintAssignmentRow = {
   id: string
   assigned_officer_id: string | null
+  assigned_worker_id: string | null
   assigned_department: string | null
   status: Enums<"complaint_status">
   created_at: string
@@ -46,6 +47,10 @@ export type WorkerProfileRow = {
   department: string
   average_rating?: number | null
   total_reviews?: number | null
+  profiles?: {
+    full_name: string | null
+    email: string | null
+  }
 }
 
 export type CategoryRow = {

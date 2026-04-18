@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { CameraCard, CameraData } from '@/components/admin-surveillance/CameraCard';
 import { supabase } from '@/src/lib/supabase';
 import { Loader2 } from 'lucide-react';
@@ -37,16 +37,37 @@ const getSupabaseHost = (): string => {
   }
 };
 
+const toVerificationLabel = (value?: string | null): string | undefined => {
+  if (value === 'repaired') return 'Repaired';
+  if (value === 'not_repaired') return 'Not Repaired';
+  return undefined;
+};
+
+const toVerificationStatus = (value?: string): string | undefined => {
+  if (value === 'Repaired') return 'repaired';
+  if (value === 'Not Repaired') return 'not_repaired';
+  return undefined;
+};
+
 export default function SurveillancePage() {
   const [cameras, setCameras] = useState<CameraData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    fetchCameras();
-  }, []);
+  const mapCameraRow = useCallback((cam: any): CameraData => ({
+    camera_id: cam.id,
+    camera_name: cam.name,
+    road_type: cam.road_type,
+    latitude: cam.latitude,
+    longitude: cam.longitude,
+    digipin: cam.digipin,
+    video_url: cam.video_url,
+    status: cam.last_status || 'Idle',
+    generated_ticket_id: cam.generated_ticket_id || undefined,
+    verification_result: toVerificationLabel(cam.verification_status),
+  }), []);
 
-  const fetchCameras = async () => {
-    setIsLoading(true);
+  const fetchCameras = useCallback(async (showLoader = true) => {
+    if (showLoader) setIsLoading(true);
     const { data, error } = await (supabase
       .from('cctv_cameras' as any)
       .select('*')
@@ -60,21 +81,48 @@ export default function SurveillancePage() {
         rawError: error,
       });
     } else if (data) {
-      const mapped = data.map((cam: any) => ({
-        camera_id: cam.id,
-        camera_name: cam.name,
-        road_type: cam.road_type,
-        latitude: cam.latitude,
-        longitude: cam.longitude,
-        digipin: cam.digipin,
-        video_url: cam.video_url,
-        status: cam.last_status || 'Idle',
-        verification_result: cam.verification_result || undefined,
-      }));
-      setCameras(mapped);
+      setCameras(data.map(mapCameraRow));
     }
-    setIsLoading(false);
-  };
+    if (showLoader) setIsLoading(false);
+  }, [mapCameraRow]);
+
+  useEffect(() => {
+    void fetchCameras();
+  }, [fetchCameras]);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('surveillance-cctv-cameras')
+      .on(
+        'postgres_changes' as any,
+        { event: '*', schema: 'public', table: 'cctv_cameras' },
+        (payload: any) => {
+          if (payload.eventType === 'DELETE') {
+            const deletedId = payload.old?.id as string | undefined;
+            if (!deletedId) return;
+            setCameras((prev) => prev.filter((cam) => cam.camera_id !== deletedId));
+            return;
+          }
+
+          const row = payload.new;
+          if (!row?.id) return;
+          const mapped = mapCameraRow(row);
+
+          setCameras((prev) => {
+            const idx = prev.findIndex((cam) => cam.camera_id === mapped.camera_id);
+            if (idx === -1) return [...prev, mapped];
+            const next = [...prev];
+            next[idx] = { ...next[idx], ...mapped };
+            return next;
+          });
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [mapCameraRow]);
 
   const handleUpdateCamera = async (id: string, updates: Partial<CameraData>) => {
     // Optimistic update
@@ -84,13 +132,16 @@ export default function SurveillancePage() {
 
     // Persist to DB if the changes are metadata related
     const dbUpdates: any = {};
-    if (updates.camera_name) dbUpdates.name = updates.camera_name;
-    if (updates.road_type) dbUpdates.road_type = updates.road_type;
-    if (updates.latitude) dbUpdates.latitude = updates.latitude;
-    if (updates.longitude) dbUpdates.longitude = updates.longitude;
-    if (updates.digipin) dbUpdates.digipin = updates.digipin;
-    if (updates.status) dbUpdates.last_status = updates.status;
-    if (updates.verification_result) dbUpdates.verification_result = updates.verification_result;
+    if (updates.camera_name !== undefined) dbUpdates.name = updates.camera_name;
+    if (updates.road_type !== undefined) dbUpdates.road_type = updates.road_type;
+    if (updates.latitude !== undefined) dbUpdates.latitude = updates.latitude;
+    if (updates.longitude !== undefined) dbUpdates.longitude = updates.longitude;
+    if (updates.digipin !== undefined) dbUpdates.digipin = updates.digipin;
+    if (updates.status !== undefined) dbUpdates.last_status = updates.status;
+    if (updates.generated_ticket_id !== undefined) dbUpdates.generated_ticket_id = updates.generated_ticket_id;
+    if (updates.verification_result !== undefined) {
+      dbUpdates.verification_status = toVerificationStatus(updates.verification_result);
+    }
 
     if (Object.keys(dbUpdates).length > 0) {
       await supabase.from('cctv_cameras' as any).update(dbUpdates).eq('id', id);
@@ -204,7 +255,7 @@ export default function SurveillancePage() {
 
       if (data) {
         // Force refresh from DB to avoid stale in-memory IDs.
-        await fetchCameras();
+        await fetchCameras(false);
       }
     } catch (err: any) {
       const isNetworkError = err instanceof TypeError || /failed to fetch/i.test(err?.message || '');
@@ -239,7 +290,7 @@ export default function SurveillancePage() {
               data={camera}
               onUpdate={handleUpdateCamera}
               onDelete={handleDeleteCamera}
-              onAnalyzeNotFound={fetchCameras}
+              onAnalyzeNotFound={() => fetchCameras(false)}
             />
           ))}          
           {/* Permanent Add Camera Card */}

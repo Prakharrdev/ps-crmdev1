@@ -134,11 +134,11 @@ export default function MaterialRequestModal({
 
   return (
     <div className="fixed inset-0 z-[3000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <div className="w-full max-w-lg bg-white dark:bg-[#161616] rounded-2xl shadow-2xl border border-gray-200 dark:border-[#2a2a2a] overflow-hidden">
+      <div className="w-full max-w-lg bg-white dark:bg-[#1e1e1e] rounded-2xl shadow-2xl border border-gray-200 dark:border-[#2a2a2a] overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-[#2a2a2a]">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-              <Package className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+            <div className="p-2 bg-[#b48470]/10 dark:bg-[#C9A84C]/10 rounded-lg">
+              <Package className="w-5 h-5 text-[#b48470] dark:text-[#C9A84C]" />
             </div>
             <div>
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Request Materials</h3>
@@ -166,7 +166,7 @@ export default function MaterialRequestModal({
                   <select
                     value={item.materialId}
                     onChange={(e) => updateItem(index, "materialId", e.target.value)}
-                    className="w-full bg-white dark:bg-[#161616] border border-gray-200 dark:border-[#2a2a2a] rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all dark:text-white"
+                    className="w-full bg-white dark:bg-[#1e1e1e] border border-gray-200 dark:border-[#2a2a2a] rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#b48470] dark:focus:ring-[#C9A84C] outline-none transition-all dark:text-white"
                   >
                     {inventory.map((m) => (
                       <option key={m.id} value={m.id}>
@@ -182,7 +182,7 @@ export default function MaterialRequestModal({
                     min="1"
                     value={item.quantity}
                     onChange={(e) => updateItem(index, "quantity", parseInt(e.target.value))}
-                    className="w-full bg-white dark:bg-[#161616] border border-gray-200 dark:border-[#2a2a2a] rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all dark:text-white"
+                    className="w-full bg-white dark:bg-[#1e1e1e] border border-gray-200 dark:border-[#2a2a2a] rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#b48470] dark:focus:ring-[#C9A84C] outline-none transition-all dark:text-white"
                   />
                 </div>
                 <button
@@ -202,7 +202,7 @@ export default function MaterialRequestModal({
                   type="button"
                   onClick={addItem}
                   disabled={inventory.length === 0}
-                  className="mt-2 text-sm font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 transition-colors disabled:opacity-50"
+                  className="mt-2 text-sm font-medium text-[#b48470] hover:text-[#8c6757] dark:text-[#C9A84C] dark:hover:text-[#d8b65c] transition-colors disabled:opacity-50"
                 >
                   {inventory.length === 0 ? "Loading inventory..." : "+ Add Material"}
                 </button>
@@ -214,7 +214,7 @@ export default function MaterialRequestModal({
             <button
               type="button"
               onClick={addItem}
-              className="flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 mb-6 transition-colors"
+              className="flex items-center gap-2 text-sm font-medium text-[#b48470] hover:text-[#8c6757] dark:text-[#C9A84C] dark:hover:text-[#d8b65c] mb-6 transition-colors"
             >
               <Plus className="w-4 h-4" /> Add another item
             </button>
@@ -240,7 +240,7 @@ export default function MaterialRequestModal({
               className={`flex-1 px-4 py-2.5 font-medium rounded-xl transition-all flex items-center justify-center gap-2 ${
                 isSuccess
                   ? "bg-green-500 text-white"
-                  : "bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-blue-500/20"
+                  : "bg-[#b48470] text-white hover:bg-[#8c6757] dark:bg-[#C9A84C] dark:text-[#1a1a1a] dark:hover:bg-[#d8b65c] disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-[#b48470]/20 dark:shadow-[#C9A84C]/20"
               }`}
             >
               {isSubmitting ? (

@@ -10,6 +10,7 @@ import json
 import re
 import hashlib
 import uuid
+import asyncio
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -47,10 +48,14 @@ SUPABASE_SERVICE_KEY = (os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("NEXT_PUB
 # Other Config
 MAPPLS_API_KEY = os.getenv("MAPPLS_API_KEY")
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
+RESEND_FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", "Jansamadhan@mail.perkkk.dev").strip() or "Jansamadhan@mail.perkkk.dev"
 AI_SERVICE_URL = os.getenv("AI_SERVICE_URL")
 REDIS_URL = os.getenv("REDIS_URL")
+FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "https://jansamadhan.perkkk.dev").strip().rstrip("/")
 
 # Startup Validation
+print(f"DEBUG: SUPABASE_URL={SUPABASE_URL}")
+print(f"DEBUG: RESEND_API_KEY={'set' if RESEND_API_KEY else 'MISSING'}")
 if not GEMINI_API_KEY:
     print("❌ FATAL: GEMINI_API_KEY is not set.")
 if not SUPABASE_URL:
@@ -77,19 +82,154 @@ GEMINI_PRIMARY_MODEL = os.getenv("GEMINI_PRIMARY_MODEL", "gemini-2.5-flash")
 GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-2.0-flash")
 
 
-async def send_resend_email(ticket_id: str, title: str, authority: str, severity: str, ward: str, city: str, address: str):
-    """Sends an official aesthetic email notification via Resend REST API."""
+_NOTIFICATION_EVENT_LABELS = {
+    "complaint_created": "Complaint Registered",
+    "worker_assigned": "Worker Assigned",
+    "worker_reassigned": "Worker Reassigned",
+    "status_changed": "Status Updated",
+}
+
+_NOTIFICATION_EVENT_SUMMARIES = {
+    "complaint_created": "Your complaint has been successfully registered in JanSamadhan.",
+    "worker_assigned": "A worker has been assigned to your complaint.",
+    "worker_reassigned": "Worker assignment has been updated for your complaint.",
+    "status_changed": "Your complaint status has changed. Please review the latest update below.",
+}
+
+
+def _normalize_email(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    candidate = str(value).strip().lower()
+    if not candidate:
+        return None
+    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", candidate):
+        return None
+    return candidate
+
+
+async def _lookup_profile_email(profile_id: Optional[str], expected_role: str) -> Optional[str]:
+    if not profile_id:
+        return None
+
+    try:
+        profile_res = await asyncio.to_thread(
+            lambda: supabase.table("profiles")
+            .select("email, role, is_blocked")
+            .eq("id", profile_id)
+            .maybe_single()
+            .execute()
+        )
+    except Exception as exc:
+        print(f"[Email] Failed profile lookup for {profile_id}: {exc}")
+        return None
+
+    row = profile_res.data or {}
+    if not row:
+        print(f"[Email] Profile missing for {profile_id}; skipping recipient")
+        return None
+
+    role = str(row.get("role") or "").lower()
+    if role != expected_role:
+        print(f"[Email] Role mismatch for {profile_id}: expected {expected_role}, got {role or 'unknown'}")
+        return None
+
+    if bool(row.get("is_blocked")):
+        print(f"[Email] Profile {profile_id} is blocked; skipping")
+        return None
+
+    email = _normalize_email(row.get("email"))
+    if not email:
+        print(f"[Email] Invalid/missing email for profile {profile_id}; skipping")
+        return None
+    return email
+
+
+async def _resolve_recipients(
+    *,
+    event_type: str,
+    citizen_id: Optional[str],
+    worker_id: Optional[str],
+    worker_id_override: Optional[str] = None,
+) -> List[str]:
+    recipients: List[str] = []
+
+    include_citizen = event_type in {"complaint_created", "worker_assigned", "worker_reassigned", "status_changed"}
+    include_worker = event_type in {"worker_assigned", "worker_reassigned", "status_changed"}
+
+    if include_citizen:
+        citizen_email = await _lookup_profile_email(citizen_id, expected_role="citizen")
+        if citizen_email:
+            recipients.append(citizen_email)
+
+    if include_worker:
+        worker_target = worker_id_override or worker_id
+        worker_email = await _lookup_profile_email(worker_target, expected_role="worker")
+        if worker_email:
+            recipients.append(worker_email)
+
+    # Preserve ordering while removing duplicates.
+    return list(dict.fromkeys(recipients))
+
+
+def _status_label(status: Optional[str]) -> str:
+    if not status:
+        return "Unknown"
+    return str(status).replace("_", " ").title()
+
+
+def build_ticket_details_url(complaint_id: Optional[str]) -> str:
+    """Build an absolute URL to the citizen ticket details page."""
+    base_url = FRONTEND_BASE_URL or "https://jansamadhan.perkkk.dev"
+    normalized_id = str(complaint_id or "").strip()
+    if not normalized_id:
+        return f"{base_url}/citizen/tickets"
+    encoded_id = urllib.parse.quote(normalized_id, safe="")
+    return f"{base_url}/citizen/tickets/details?id={encoded_id}"
+
+
+async def send_resend_email(
+    ticket_id: str,
+    title: str,
+    authority: str,
+    severity: str,
+    ward: str,
+    city: str,
+    address: str,
+    *,
+    complaint_id: Optional[str] = None,
+    citizen_id: Optional[str] = None,
+    worker_id: Optional[str] = None,
+    event_type: str = "complaint_created",
+    status: Optional[str] = None,
+    worker_id_override: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Send complaint email notifications to worker/citizen recipients only."""
     if not RESEND_API_KEY:
         print("[Resend] API key missing, skipping email.")
-        return
+        return {"status": "skipped", "reason": "missing_api_key"}
 
-    url = "https://api.resend.com/emails"
-    headers = {
-        "Authorization": f"Bearer {RESEND_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    
+    event = event_type if event_type in _NOTIFICATION_EVENT_LABELS else "status_changed"
+    recipients = await _resolve_recipients(
+        event_type=event,
+        citizen_id=citizen_id,
+        worker_id=worker_id,
+        worker_id_override=worker_id_override,
+    )
+    print(f"DEBUG: Email recipients for {ticket_id}: {recipients}")
+    if not recipients:
+        print(
+            f"[Email] No eligible recipients for event={event} ticket={ticket_id} "
+            f"citizen_id={citizen_id} worker_id={worker_id_override or worker_id}"
+        )
+        return {"status": "skipped", "reason": "no_recipients"}
+
+    label = _NOTIFICATION_EVENT_LABELS[event]
+    summary = _NOTIFICATION_EVENT_SUMMARIES[event]
+    status_text = _status_label(status)
     current_year = datetime.now().year
+    ticket_url = build_ticket_details_url(complaint_id)
+
     email_html = f"""
     <!DOCTYPE html>
     <html>
@@ -119,11 +259,12 @@ async def send_resend_email(ticket_id: str, title: str, authority: str, severity
           <div style="color: #9ca3af; font-size: 10px; margin-top: 4px;">OFFICIAL GRIEVANCE PORTAL</div>
         </div>
         <div class="content">
-          <div class="greeting">New Complaint Registered</div>
-          <p class="summary">A new complaint has been filed and assigned to your department. Please review the details below and take appropriate action within the SLA timelines.</p>
-          
+          <div class="greeting">{label}</div>
+          <p class="summary">{summary}</p>
+
           <table class="details-table">
             <tr><th>Ticket ID</th><td class="highlight">{ticket_id}</td></tr>
+            <tr><th>Current Status</th><td>{status_text}</td></tr>
             <tr><th>Severity</th><td>{severity}</td></tr>
             <tr><th>Department</th><td>{authority}</td></tr>
             <tr><th>Issue</th><td>{title}</td></tr>
@@ -132,7 +273,7 @@ async def send_resend_email(ticket_id: str, title: str, authority: str, severity
           </table>
 
           <div class="btn-container">
-            <a href="https://jansamadhan.perkkk.dev/authority" class="btn">View in Dashboard</a>
+                        <a href="{ticket_url}" class="btn">View Ticket</a>
           </div>
         </div>
         <div class="footer">
@@ -145,10 +286,16 @@ async def send_resend_email(ticket_id: str, title: str, authority: str, severity
     """
 
     payload = {
-        "from": "onboarding@resend.dev",
-        "to": "hackthondb@gmail.com",
-        "subject": f"[New Complaint] {ticket_id}: {title}",
+        "from": RESEND_FROM_EMAIL,
+        "to": recipients,
+        "subject": f"[{label}] {ticket_id}: {title}",
         "html": email_html,
+    }
+
+    url = "https://api.resend.com/emails"
+    headers = {
+        "Authorization": f"Bearer {RESEND_API_KEY}",
+        "Content-Type": "application/json",
     }
 
     async with httpx.AsyncClient() as client:
@@ -156,8 +303,11 @@ async def send_resend_email(ticket_id: str, title: str, authority: str, severity
             resp = await client.post(url, headers=headers, json=payload)
             if resp.status_code not in (200, 201):
                 print(f"[Resend Error] {resp.status_code}: {resp.text}")
-        except Exception as e:
-            print(f"[Resend Exception] {e}")
+                return {"status": "failed", "reason": f"http_{resp.status_code}"}
+            return {"status": "sent", "recipients": recipients, "event": event}
+        except Exception as exc:
+            print(f"[Resend Exception] {exc}")
+            return {"status": "failed", "reason": "exception"}
 
 
 

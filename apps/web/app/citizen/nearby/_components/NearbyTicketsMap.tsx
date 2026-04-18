@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Circle, CircleMarker, MapContainer, Marker, TileLayer, useMap } from "react-leaflet";
 import { ChevronDown, ChevronUp, Flame, LocateFixed } from "lucide-react";
+import { useTheme } from "@/components/ThemeProvider";
+import { getMapTileLayerConfig } from "@/lib/map-tiles";
 
 import type { MappedComplaint } from "./useNearbyTickets";
 import { getSeverityConfig } from "./useNearbyTickets";
@@ -167,6 +169,7 @@ interface NearbyTicketsMapProps {
   customHeight?: string;
   hideCollapse?: boolean;
   onRecenterClick?: () => void;
+  highQuality?: boolean;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -193,7 +196,9 @@ export default function NearbyTicketsMap({
   customHeight,
   hideCollapse,
   onRecenterClick,
+  highQuality = true,
 }: NearbyTicketsMapProps) {
+  const { theme } = useTheme();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [L, setL] = useState<any>(null);
   const [expandedMapHeight, setExpandedMapHeight] = useState(360);
@@ -201,6 +206,10 @@ export default function NearbyTicketsMap({
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [recenterSignal, setRecenterSignal] = useState(0);
   const [mapSessionKey, setMapSessionKey] = useState(0);
+  const tileConfig = useMemo(
+    () => getMapTileLayerConfig({ theme, highQuality }),
+    [highQuality, theme]
+  );
 
   useEffect(() => {
     import("leaflet").then((leaflet) => {
@@ -260,7 +269,13 @@ export default function NearbyTicketsMap({
             style={{ height: "100%", width: "100%" }}
             zoomControl={false}
           >
-            <TileLayer attribution="© OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+            <TileLayer
+              attribution={tileConfig.attribution}
+              url={tileConfig.url}
+              detectRetina={tileConfig.detectRetina}
+              maxNativeZoom={tileConfig.maxNativeZoom}
+              subdomains={tileConfig.subdomains}
+            />
             <FlyToTarget target={flyTarget} />
             <LiveFollow userLocation={userLocation} recenterSignal={recenterSignal} />
 

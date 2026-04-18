@@ -8,6 +8,8 @@ import {
   severityClass,
   type DashboardTask,
 } from "@/components/worker-dashboard/dashboard-types"
+import { useTheme } from "@/components/ThemeProvider"
+import { getMapTileLayerConfig } from "@/lib/map-tiles"
 
 type WorkerTaskMapPanelProps = {
   tasks: DashboardTask[]
@@ -15,6 +17,7 @@ type WorkerTaskMapPanelProps = {
   loading: boolean
   error: string | null
   onSelectTask?: (taskId: string) => void
+  highQuality?: boolean
 }
 
 function createMarkerIcon(color: string, highlighted = false): L.DivIcon {
@@ -106,9 +109,15 @@ export default function WorkerTaskMapPanel({
   loading,
   error,
   onSelectTask,
+  highQuality = true,
 }: WorkerTaskMapPanelProps) {
+  const { theme } = useTheme()
   const [isClientReady, setIsClientReady] = useState(false)
   const [recenterTrigger, setRecenterTrigger] = useState(0)
+  const tileConfig = useMemo(
+    () => getMapTileLayerConfig({ theme, highQuality }),
+    [highQuality, theme],
+  )
   // Ensure each component mount gets a fresh Leaflet container identity.
   const mapSessionKey = useId()
 
@@ -173,8 +182,11 @@ export default function WorkerTaskMapPanel({
         {isClientReady ? (
           <MapContainer key={mapSessionKey} center={[28.6139, 77.209]} zoom={12} scrollWheelZoom={true} style={{ height: "100%", width: "100%" }}>
             <TileLayer
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              attribution="&copy; OpenStreetMap contributors"
+              attribution={tileConfig.attribution}
+              url={tileConfig.url}
+              detectRetina={tileConfig.detectRetina}
+              maxNativeZoom={tileConfig.maxNativeZoom}
+              subdomains={tileConfig.subdomains}
             />
 
             {mappableTasks.map((task) => (

@@ -1,40 +1,47 @@
-# Use NVIDIA CUDA 12.1 Runtime as base (Ubuntu 22.04)
-FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
+# Use NVIDIA CUDA 11.8 as base for Full GPU Support & Python 3.10 compatibility
+FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
 
 # Set non-interactive for apt-get
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install Python 3 (defaults to 3.10 on Ubuntu 22.04) and system dependencies
+# Install Python 3.10 and system dependencies for OpenCV/Model Download
 RUN apt-get update && apt-get install -y \
     software-properties-common \
     && add-apt-repository ppa:deadsnakes/ppa \
     && apt-get update && apt-get install -y \
-    python3.12 \
+    python3.10 \
     python3-pip \
+    python3.10-dev \
     libgl1 \
     libglib2.0-0 \
     wget \
+    curl \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory
 WORKDIR /app
 
-# Copy the requirements file (using monorepo path if built from root)
-COPY ai-service/requirements.txt .
+# Ensure python3.10 is the default
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1 \
+    && update-alternatives --set python3 /usr/bin/python3.10
 
-# Install dependencies (using --no-cache-dir to save space)
-# We use the CPU index for PyTorch to save ~4GB, but onnxruntime-gpu for inference speed.
+# Copy the requirements file
+COPY requirements.txt .
+
+# Install dependencies
+# We use onnxruntime-gpu for hardware acceleration
 RUN python3 -m pip install --no-cache-dir --upgrade pip && \
-    python3 -m pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
+    python3 -m pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application code
-COPY ai-service/ .
+COPY . .
 
 # Set environment variables
 ENV PYTHONPATH=/app
 ENV DEVICE=0
+ENV PORT=8000
 
-# Expose the port Railway will assign
+# Expose the port
 EXPOSE 8000
 
 # Start the application

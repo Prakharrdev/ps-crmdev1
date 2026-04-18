@@ -108,7 +108,13 @@ class CCTVAutoTicketHandler:
             request_id=request_id,
         )
         if duplicate:
-            update_camera_status(camera_id, "Duplicate Ticket", request_id=request_id)
+            update_camera_status(
+                camera_id,
+                "Duplicate Ticket",
+                request_id=request_id,
+                generated_ticket_id=duplicate.get("ticket_id"),
+                verification_status="pending",
+            )
             return {"status": "duplicate_prevented", "complaint_id": duplicate["id"], "ticket_id": duplicate.get("ticket_id")}
 
         # Log telemetry
@@ -211,7 +217,13 @@ class CCTVAutoTicketHandler:
                 "status_result": "Ticket Generated",
                 "ai_metadata": trigger_meta
             }, request_id=request_id)
-            update_camera_status(camera_id, "Ticket Generated", request_id=request_id)
+            update_camera_status(
+                camera_id,
+                "Ticket Generated",
+                request_id=request_id,
+                generated_ticket_id=complaint.get("ticket_id"),
+                verification_status="pending",
+            )
             
             return {
                 "status": "ticket_created",

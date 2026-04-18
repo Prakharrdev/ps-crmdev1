@@ -295,6 +295,15 @@ export default function TicketsPage() {
       setActionLoading(true)
       setError(null)
 
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        setError("You must be logged in as admin")
+        setActionLoading(false)
+        return
+      }
+
       const { error: updateError } = await supabase
         .from("complaints")
         .update({ status: "escalated", escalation_level: (ticket.escalationLevel ?? 0) + 1 })
@@ -315,6 +324,24 @@ export default function TicketsPage() {
           new_status: "escalated",
           note: "Escalated from admin complaints dashboard",
         })
+      }
+
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+        await fetch(`${apiUrl}/api/notifications/complaint-email`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            complaint_id: ticket.id,
+            event_type: "status_changed",
+            status: "escalated",
+          }),
+        })
+      } catch (err) {
+        console.error("Failed to request escalation status email:", err)
       }
 
       await fetchTickets()
@@ -365,50 +392,42 @@ export default function TicketsPage() {
 
     setActionLoading(true)
     setError(null)
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        throw new Error("You must be logged in as admin")
+      }
 
-    const selectedWorker = workers.find((worker) => worker.id === assignWorkerId) ?? null
-    const nextStatus =
-      selectedTicket.status === "submitted" || selectedTicket.status === "under_review"
-        ? "assigned"
-        : selectedTicket.status
-
-    const payload: {
-      assigned_worker_id: string
-      status: Enums<"complaint_status">
-      assigned_department?: string
-    } = {
-      assigned_worker_id: assignWorkerId,
-      status: nextStatus,
-    }
-
-    if (selectedWorker?.department) {
-      payload.assigned_department = selectedWorker.department
-    }
-
-    const { error: updateError } = await supabase.from("complaints").update(payload).eq("id", selectedTicket.id)
-
-    if (updateError) {
-      setError(updateError.message || "Failed to assign worker")
-      setActionLoading(false)
-      return
-    }
-
-    const { data: authData } = await supabase.auth.getUser()
-    if (authData.user) {
-      await supabase.from("ticket_history").insert({
-        changed_by: authData.user.id,
-        complaint_id: selectedTicket.id,
-        old_status: selectedTicket.status,
-        new_status: nextStatus,
-        note: `Assigned worker from admin complaints dashboard (${assignWorkerId})`,
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+      const response = await fetch(`${apiUrl}/api/authority/assign`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          complaint_id: selectedTicket.id,
+          worker_id: assignWorkerId,
+          status: "assigned",
+        }),
       })
-    }
 
-    setIsAssignOpen(false)
-    setSelectedTicket(null)
-    await fetchTickets()
-    setActionLoading(false)
-  }, [assignWorkerId, fetchTickets, selectedTicket, workers])
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}))
+        throw new Error(payload.detail || "Failed to assign worker")
+      }
+
+      setIsAssignOpen(false)
+      setSelectedTicket(null)
+      await fetchTickets()
+    } catch (err: any) {
+      setError(err.message || "Failed to assign worker")
+    } finally {
+      setActionLoading(false)
+    }
+  }, [assignWorkerId, fetchTickets, selectedTicket])
 
   // ── Instant Load from localStorage, then fresh fetch ──
   useEffect(() => {

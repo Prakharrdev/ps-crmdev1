@@ -88,8 +88,12 @@ export async function GET(req: NextRequest) {
       .select("id, full_name, email, phone, city, department, is_blocked, created_at")
       .eq("role", "authority")
       .order("created_at", { ascending: false }),
-    supabaseAdmin.from("complaints").select("id, assigned_officer_id, assigned_department, status, created_at, resolved_at"),
-    supabaseAdmin.from("worker_profiles").select("worker_id, department"),
+    supabaseAdmin
+      .from("complaints")
+      .select("id, assigned_officer_id, assigned_worker_id, assigned_department, status, created_at, resolved_at"),
+    supabaseAdmin
+      .from("worker_profiles")
+      .select("worker_id, department, average_rating, total_reviews, profiles(full_name, email)"),
     supabaseAdmin.from("categories").select("name, department").eq("is_active", true),
   ])
 

@@ -7,7 +7,11 @@ export async function middleware(request: NextRequest) {
   // 1. PERFORMANCE OPTIMIZATION: Skip middleware for public routes and API calls.
   // This prevents unnecessary network calls to Supabase Sydney for initial page loads and 
   // background API requests which already perform their own authentication.
-  const isPublicRoute = pathname === '/' || pathname === '/login' || pathname.startsWith('/auth')
+  const isPublicRoute =
+    pathname === '/' ||
+    pathname === '/login' ||
+    pathname === '/quotation' ||
+    pathname.startsWith('/auth')
   const isApiRoute = pathname.startsWith('/api')
 
   if (isPublicRoute || isApiRoute) {

@@ -452,12 +452,14 @@ export function ComplaintDetailPanel({
   onClose,
   onAssigned,
   inline = false,
+  modal = false,
 }: {
   complaint: AuthorityComplaintRow
   workers?: WorkerOption[]
   onClose: () => void
   onAssigned?: () => void
   inline?: boolean
+  modal?: boolean
 }) {
   // getSeverityConfig — reads effective_severity directly, no silent Medium fallback
   const sev = getSeverityConfig(complaint.effective_severity)
@@ -511,10 +513,122 @@ export function ComplaintDetailPanel({
   )
 
   // ── Body ────────────────────────────────────────────────────────────────────
-  const body = (
-    <div className={`${inline ? "" : "flex-1 overflow-y-auto"} px-4 py-3 space-y-3`}>
+  const body = inline || modal ? (
+    // Inline/modal mode: two-column layout with text on left, image on right
+    <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3">
       <WorkflowStepper status={complaint.status} escalationLevel={complaint.escalation_level} />
+      
+      {/* Content row: left column (text) + right column (image) */}
+      <div className="flex flex-col lg:flex-row gap-6 min-h-0">
+        {/* Left column: all text fields */}
+        <div className="flex-1 min-w-0 space-y-3">
+          <div className="h-px bg-gray-100 dark:bg-gray-800" />
 
+          <Field label="Category">
+            <span className="text-sm break-words text-gray-800 dark:text-gray-200">
+              {complaint.categories?.name ?? "—"}
+            </span>
+          </Field>
+
+          {complaint.address_text && (
+            <Field label="Location">
+              <span className="flex items-start gap-1.5 text-sm break-words text-gray-700 dark:text-gray-300">
+                <MapPin size={13} className="mt-0.5 shrink-0 text-[#b4725a]" />
+                <span className="min-w-0 flex-1">{complaint.address_text}</span>
+              </span>
+            </Field>
+          )}
+
+          <Field label="Reported">
+            <span className="text-sm text-gray-700 dark:text-gray-300">
+              {new Date(complaint.created_at).toLocaleDateString("en-IN", {
+                day: "numeric", month: "long", year: "numeric",
+              })}
+              <span className="ml-1.5 text-xs text-gray-400">({timeAgo(complaint.created_at)})</span>
+            </span>
+          </Field>
+
+          <Field label="Severity">
+            <div className="flex items-center gap-2">
+              <div className="h-3 w-3 rounded-full" style={{ background: sev.color }} />
+              <span
+                className="rounded-full px-2.5 py-0.5 text-xs font-bold uppercase"
+                style={{ background: sev.color + "22", color: sev.color }}
+              >
+                {sev.label}
+              </span>
+            </div>
+          </Field>
+
+          <Field label="Upvotes">
+            <span className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+              {complaint.upvote_count ?? 0}
+            </span>
+          </Field>
+
+          <Field label="Escalation">
+            {isEscalated ? (
+              <span className="inline-flex rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-bold text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
+                Level {complaint.escalation_level || 1}
+              </span>
+            ) : (
+              <span className="text-sm text-gray-400">None</span>
+            )}
+          </Field>
+
+          <Field label="Assigned Worker">
+            {complaint.assigned_worker_id ? (
+              <div className="flex items-center gap-2">
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-[10px] font-bold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+                  {(assignedWorker?.full_name ?? "W").charAt(0).toUpperCase()}
+                </span>
+                <div>
+                  <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
+                    {assignedWorker?.full_name ?? "Worker assigned"}
+                  </p>
+                  {assignedWorker?.department && (
+                    <p className="text-[10px] text-gray-400">{assignedWorker.department}</p>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <span className="text-sm text-orange-500">Unassigned</span>
+            )}
+          </Field>
+
+          <Field label="SLA Deadline">
+            <SlaDisplay deadline={complaint.sla_deadline} status={complaint.status} />
+          </Field>
+        </div>
+
+        {/* Right column: large primary image */}
+        {(complaint.photo_urls ?? []).length > 0 && (
+          <div className="w-full lg:w-96 shrink-0 flex flex-col gap-2">
+            <img
+              src={(complaint.photo_urls ?? [])[0]}
+              alt="complaint photo"
+              className="h-auto w-full rounded-xl object-contain shadow-md bg-gray-50 dark:bg-gray-900/50"
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  ) : (
+    // Drawer mode: original single-column layout
+    <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+      <WorkflowStepper status={complaint.status} escalationLevel={complaint.escalation_level} />
+      {(complaint.photo_urls ?? []).length > 0 && (
+        <div className="mb-2 flex max-w-full min-w-0 gap-2 overflow-x-auto pb-1">
+          {(complaint.photo_urls ?? []).map((url, index) => (
+            <img
+              key={index}
+              src={url}
+              alt={`complaint photo ${index + 1}`}
+              className="h-44 w-[72vw] max-w-64 shrink-0 rounded-xl object-cover shadow-sm sm:w-56 md:w-64"
+            />
+          ))}
+        </div>
+      )}
       <div className="h-px bg-gray-100 dark:bg-gray-800" />
 
       <Field label="Category">
@@ -613,16 +727,26 @@ export function ComplaintDetailPanel({
           />
         </>
       )}
-      {!inline && (
-        <a
-          href="/authority/track"
-          className="flex w-full items-center justify-center rounded-lg border border-gray-200 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-900"
-        >
-          Open in Track Complaints →
-        </a>
-      )}
     </div>
   )
+
+  if (modal) {
+    return (
+      <>
+        <div className="fixed inset-0 z-[2150] bg-black/30 backdrop-blur-sm" onClick={onClose} />
+        <div className="fixed inset-0 z-[2200] flex items-center justify-center p-4">
+          <div
+            onClick={e => e.stopPropagation()}
+            className="w-full max-w-5xl h-[min(90vh,calc(100vh-4rem))] overflow-hidden rounded-3xl border border-white/10 bg-white/95 shadow-2xl shadow-black/10 backdrop-blur-xl dark:border-white/10 dark:bg-[#111111]/95 flex flex-col"
+          >
+            {header}
+            {body}
+            {footer}
+          </div>
+        </div>
+      </>
+    )
+  }
 
   if (inline) {
     return (

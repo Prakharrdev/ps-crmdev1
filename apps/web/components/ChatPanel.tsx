@@ -1200,6 +1200,7 @@ export default function ChatPanel({ onClose: _onClose }: { onClose?: () => void 
         data: { session },
       } = await supabase.auth.getSession();
       const user = session?.user;
+      const accessToken = session?.access_token ?? "";
 
       if (!user) {
         addBotMessage(t(selectedLanguage, "login_required"));
@@ -1213,7 +1214,10 @@ export default function ChatPanel({ onClose: _onClose }: { onClose?: () => void 
 
       const res = await fetch("/api/complaints", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
         body: JSON.stringify({
           citizen_id: user.id,
           category_id: categoryId,

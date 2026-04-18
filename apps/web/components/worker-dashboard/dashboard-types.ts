@@ -18,6 +18,8 @@ export type DashboardTask = {
   longitude: number | null
   distanceKm: number | null
   cameraId: string | null   // set on CCTV-generated tickets — used to trigger Pending Verification
+  slaBreached: boolean
+  slaDeadline: string | null
   isSpam: boolean
 }
 

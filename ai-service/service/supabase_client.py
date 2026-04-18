@@ -265,12 +265,14 @@ def create_complaint(data: Dict[str, Any], request_id: Optional[str] = None) -> 
                     continue
             raise
 
-def update_camera_status(camera_id: str, status: str, request_id: Optional[str] = None):
-    """Update camera's last known status."""
+def update_camera_status(camera_id: str, status: str, request_id: Optional[str] = None, **extra_updates):
+    """Update camera status and optional metadata in one write."""
     try:
         sb = get_supabase()
-        sb.table("cctv_cameras").update({"last_status": status}).eq("id", camera_id).execute()
-        _diag(f"update_camera_status success camera_id={camera_id} status={status}", request_id)
+        updates = {"last_status": status}
+        updates.update(extra_updates)
+        sb.table("cctv_cameras").update(updates).eq("id", camera_id).execute()
+        _diag(f"update_camera_status success camera_id={camera_id} status={status} updates={list(extra_updates.keys())}", request_id)
     except Exception as e:
         _diag(f"update_camera_status failed camera_id={camera_id} status={status} error={e}", request_id)
 
@@ -411,14 +413,17 @@ def verify_camera(camera_id: str, verification_result: str, verified_by: str = N
     Verification gate: called when Admin selects Repaired / Not Repaired on the
     Surveillance Card after the worker has clicked 'Mark as Complete'.
 
-    repaired     → complaint status = 'resolved', camera last_status = 'Closed'
-    not_repaired → complaint status stays 'in_progress' (SLA handles escalation)
-                   camera last_status = 'In Progress'
+    repaired     → complaint status = 'resolved', complaint CCTV verdict = 'repaired', camera last_status = 'Closed'
+    not_repaired → complaint status = 'submitted', complaint CCTV verdict = 'not_repaired',
+                   camera last_status = 'Ticket Generated' so the same ticket can be reassigned.
 
     Uses only valid Postgres enum values: submitted, assigned, in_progress, escalated, resolved.
     """
     if verification_result not in ['repaired', 'not_repaired']:
         raise ValueError(f"Invalid verification_result: {verification_result}. Must be 'repaired' or 'not_repaired'")
+
+    if not verified_by:
+        verified_by = get_system_user_id()
 
     try:
         sb = get_supabase()
@@ -426,19 +431,71 @@ def verify_camera(camera_id: str, verification_result: str, verified_by: str = N
 
         now = datetime.utcnow().isoformat()
 
-        # ── Resolve ticket from complaints table via camera_id ──────────────────
-        # complaints.camera_id is set when a CCTV ticket is auto-generated
-        complaints_res = (
-            sb.table("complaints")
-            .select("id, status, digipin")
-            .eq("camera_id", camera_id)
-            .in_("status", ["submitted", "assigned", "in_progress", "escalated"])
-            .order("created_at", desc=True)
-            .limit(1)
+        # ── Resolve target complaint deterministically ──────────────────────────
+        active_statuses = ["submitted", "assigned", "in_progress", "pending_closure", "escalated"]
+        complaint_select = "id, status, digipin, assigned_worker_id, citizen_id, created_at"
+        complaint = None
+
+        camera_res = (
+            sb.table("cctv_cameras")
+            .select("generated_ticket_id")
+            .eq("id", camera_id)
+            .maybe_single()
             .execute()
         )
+        generated_ticket_id = (camera_res.data or {}).get("generated_ticket_id") if camera_res and camera_res.data else None
 
-        complaint_id = complaints_res.data[0]["id"] if complaints_res.data else None
+        # Primary path: use camera.generated_ticket_id to avoid cross-ticket ambiguity.
+        if generated_ticket_id:
+            by_ticket_res = (
+                sb.table("complaints")
+                .select(complaint_select)
+                .eq("ticket_id", generated_ticket_id)
+                .in_("status", active_statuses)
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            complaint = by_ticket_res.data[0] if by_ticket_res.data else None
+
+            if complaint:
+                # Keep linkage healthy for legacy rows that were created without camera_id.
+                sb.table("complaints").update({"camera_id": camera_id}).eq("id", complaint["id"]).execute()
+                _diag(f"verify_camera matched by generated_ticket_id id={complaint['id']} ticket_id={generated_ticket_id}", None)
+
+        # Fallback: resolve among active complaints tied to the camera.
+        if not complaint:
+            by_camera_res = (
+                sb.table("complaints")
+                .select(complaint_select)
+                .eq("camera_id", camera_id)
+                .in_("status", active_statuses)
+                .order("created_at", desc=True)
+                .limit(20)
+                .execute()
+            )
+            candidates = by_camera_res.data or []
+
+            if candidates:
+                status_priority = {
+                    "pending_closure": 0,
+                    "in_progress": 1,
+                    "assigned": 2,
+                    "submitted": 3,
+                    "escalated": 4,
+                }
+                best_rank = min(status_priority.get(row.get("status"), 99) for row in candidates)
+                best_rank_rows = [row for row in candidates if status_priority.get(row.get("status"), 99) == best_rank]
+                complaint = max(best_rank_rows, key=lambda row: row.get("created_at") or "")
+                _diag(
+                    f"verify_camera matched by camera candidates={len(candidates)} picked={complaint.get('id')} status={complaint.get('status')}",
+                    None,
+                )
+
+        complaint_id = complaint["id"] if complaint else None
+        old_status = complaint["status"] if complaint else None
+        assigned_worker_id = complaint.get("assigned_worker_id") if complaint else None
+        complaint_citizen_id = complaint.get("citizen_id") if complaint else None
         _diag(f"verify_camera camera_id={camera_id} result={verification_result} complaint_id={complaint_id}", None)
 
         # ── Map result to valid Postgres enum values ────────────────────────────
@@ -446,20 +503,94 @@ def verify_camera(camera_id: str, verification_result: str, verified_by: str = N
             ticket_status = "resolved"          # valid enum ✅
             camera_badge  = "Closed"
         else:
-            ticket_status = "in_progress"       # valid enum ✅ — stays open for SLA
-            camera_badge  = "In Progress"
+            ticket_status = "submitted"         # requeue the same ticket for reassignment
+            camera_badge  = "Ticket Generated"
+
+        complaint_update_applied = False
 
         # ── Update complaint ────────────────────────────────────────────────────
         if complaint_id:
-            sb.table("complaints").update({
-                "status": ticket_status,
-                "resolved_at": now if ticket_status == "resolved" else None,
-            }).eq("id", complaint_id).execute()
-            _diag(f"verify_camera updated complaint {complaint_id} → {ticket_status}", None)
+            try:
+                sb.table("complaints").update({
+                    "status": ticket_status,
+                    "assigned_worker_id": None,
+                    "resolved_at": now if ticket_status == "resolved" else None,
+                    "cctv_verification_status": verification_result,
+                    "cctv_verified_at": now,
+                }).eq("id", complaint_id).execute()
+                complaint_update_applied = True
+                _diag(f"verify_camera updated complaint {complaint_id} → {ticket_status}", None)
+
+                if assigned_worker_id:
+                    sb.table("worker_profiles").update({
+                        "current_complaint_id": None,
+                        "availability": "available",
+                    }).eq("worker_id", assigned_worker_id).execute()
+            except Exception as complaint_update_error:
+                error_text = str(complaint_update_error)
+                # DB trigger writes ticket_history with auth.uid(); service-key updates can fail
+                # with changed_by NULL. Let frontend finalize complaint update using admin session.
+                if (
+                    "ticket_history" in error_text
+                    and "changed_by" in error_text
+                    and "null value" in error_text
+                ):
+                    # Preferred recovery: transition status through existing RPC that sets actor safely.
+                    # Then patch remaining CCTV fields in a non-status update.
+                    rpc_applied = False
+                    if complaint_citizen_id:
+                        try:
+                            rpc_res = sb.rpc(
+                                "update_complaint_status_citizen",
+                                {
+                                    "p_complaint_id": complaint_id,
+                                    "p_status": ticket_status,
+                                    "p_citizen_id": complaint_citizen_id,
+                                },
+                            ).execute()
+                            rpc_payload = rpc_res.data or {}
+                            if isinstance(rpc_payload, dict) and rpc_payload.get("success") is False:
+                                _diag(
+                                    f"verify_camera status rpc rejected complaint_id={complaint_id} error={rpc_payload.get('error')}",
+                                    None,
+                                )
+                            else:
+                                rpc_applied = True
+                        except Exception as rpc_error:
+                            _diag(f"verify_camera status rpc failed complaint_id={complaint_id} error={rpc_error}", None)
+
+                    if rpc_applied:
+                        sb.table("complaints").update({
+                            "assigned_worker_id": None,
+                            "resolved_at": now if ticket_status == "resolved" else None,
+                            "cctv_verification_status": verification_result,
+                            "cctv_verified_at": now,
+                        }).eq("id", complaint_id).execute()
+                        complaint_update_applied = True
+                        _diag(
+                            f"verify_camera finalized complaint via rpc complaint_id={complaint_id} status={ticket_status}",
+                            None,
+                        )
+
+                        if assigned_worker_id:
+                            sb.table("worker_profiles").update({
+                                "current_complaint_id": None,
+                                "availability": "available",
+                            }).eq("worker_id", assigned_worker_id).execute()
+                    else:
+                        _diag(
+                            f"verify_camera deferred complaint update to frontend complaint_id={complaint_id} reason=changed_by_null",
+                            None,
+                        )
+                else:
+                    raise
 
         # ── Update camera badge ─────────────────────────────────────────────────
         sb.table("cctv_cameras").update({
             "last_status": camera_badge,
+            "verification_status": verification_result,
+            "verified_at": now,
+            "verified_by": verified_by,
         }).eq("id", camera_id).execute()
         _diag(f"verify_camera updated camera {camera_id} → {camera_badge}", None)
 
@@ -469,6 +600,8 @@ def verify_camera(camera_id: str, verification_result: str, verified_by: str = N
             "complaint_id": complaint_id,
             "verification_status": verification_result,
             "ticket_status": ticket_status,
+            "assigned_worker_id": assigned_worker_id,
+            "complaint_update_applied": complaint_update_applied,
             "verified_at": now
         }
 

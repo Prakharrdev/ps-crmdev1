@@ -13,6 +13,7 @@ import {
   UserCircle2,
   Users,
   Cctv,
+  Video,
 } from "lucide-react";
 import Sidebar, { defaultSidebarConfig, SidebarNavigationItem } from "@/components/Sidebar";
 import { usePathname, useRouter } from "next/navigation";
@@ -55,6 +56,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     { id: "authorities", name: "Authorities", icon: <Shield size={20} strokeWidth={2} />, href: "/admin/authorities", isActive: pathname === "/admin/authorities" },
     { id: "workers", name: "Workers", icon: <Users size={20} strokeWidth={2} />, href: "/admin/workers", isActive: pathname === "/admin/workers" },
     { id: "surveillance", name: "Surveillance", icon: <Cctv size={20} strokeWidth={2} />, href: "/admin/surveillance", isActive: pathname === "/admin/surveillance" },
+    { id: "dashcam-live", name: "Dashcam Live", icon: <Video size={20} strokeWidth={2} />, href: "/admin/dashcam-live", isActive: pathname === "/admin/dashcam-live" },
     { id: "reports", name: "Reports", icon: <FileBarChart2 size={20} strokeWidth={2} />, href: "/admin/reports", isActive: pathname === "/admin/reports" },
   ];
 
@@ -99,6 +101,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     "/admin/categories": { title: "Categories", subtitle: "Configure complaint categories." },
     "/admin/reports": { title: "Reports", subtitle: "View analytics and generated reports." },
     "/admin/surveillance": { title: "Surveillance", subtitle: "CCTV network monitoring and AI-powered detection." },
+    "/admin/dashcam-live": { title: "Dashcam Live", subtitle: "Upload short vehicle clips for dynamic pothole analysis demo." },
     "/admin/settings": { title: "Settings", subtitle: "System preferences and configuration." },
   };
   const currentPage = pageTitles[pathname] ?? { title: "Admin", subtitle: "" };

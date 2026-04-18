@@ -342,7 +342,7 @@ export default function WorkerTasksPage() {
                           });
                           setIsModalOpen(true);
                         }}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/30 rounded-lg text-xs font-semibold transition-all w-fit h-fit"
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-[#b48470]/10 text-[#b48470] hover:bg-[#8c6757]/20 hover:text-[#8c6757] dark:bg-[#C9A84C]/10 dark:text-[#C9A84C] dark:hover:bg-[#C9A84C]/30 rounded-lg text-xs font-semibold transition-all w-fit h-fit"
                       >
                         <Package className="w-3.5 h-3.5" />
                         Materials

@@ -150,6 +150,7 @@ export default function TicketDetailClient({
   const [hasUpvoted, setHasUpvoted] = useState(false);
   const [upvoteCount, setUpvoteCount] = useState(0);
   const [showToast, setShowToast] = useState(false);
+  const [isSubmittingClosure, setIsSubmittingClosure] = useState(false);
   
   const [viewMode, setViewMode] = useState<"details" | "lifecycle">("details");
   const [history, setHistory] = useState<any[]>([]);
@@ -316,17 +317,59 @@ export default function TicketDetailClient({
       
       if (!response.ok) throw new Error("Failed to sync upvote");
       
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Upvote persistence failed:", err);
       // Rollback optimistic UI
       setHasUpvoted(wasUpvoted);
       setUpvoteCount(wasUpvoted ? upvoteCount + 1 : upvoteCount - 1);
       
-      // Inform the user why it failed
-      const msg = err?.message || "Check your internet or permissions.";
+      const msg = err instanceof Error ? err.message : typeof err === "string" ? err : "Check your internet or permissions.";
       alert(`Upvote failed: ${msg}`);
     }
   };
+
+  const handleClosureDecision = async (nextStatus: "resolved" | "reopened") => {
+    if (!ticket || !ticketId) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      router.push(`/login?redirectTo=${encodeURIComponent(window.location.href)}`);
+      return;
+    }
+
+    setIsSubmittingClosure(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch('/api/complaints', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({ complaint_id: ticketId, status: nextStatus }),
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => null);
+        throw new Error(errorBody?.error || 'Failed to submit your response');
+      }
+
+      const result = await response.json();
+      const updatedComplaint = result?.complaint as Complaint | null;
+      if (updatedComplaint) {
+        setTicket(updatedComplaint);
+      } else {
+        setTicket((prev) => prev ? { ...prev, status: nextStatus } : prev);
+      }
+    } catch (err: unknown) {
+      console.error('Closure decision failed:', err);
+      const msg = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+      alert(`Unable to submit your choice. ${msg}`);
+    } finally {
+      setIsSubmittingClosure(false);
+    }
+  };
+
+  const isPendingClosure = ticket?.status === 'pending_closure';
 
   const copyImageToClipboard = async (imageUrl: string) => {
     try {
@@ -645,7 +688,7 @@ export default function TicketDetailClient({
             <div className="mt-4 md:mt-6 pt-4 md:pt-6 animate-fade-in flex flex-wrap gap-2 md:gap-3 items-center w-full shrink-0 border-t border-gray-100 dark:border-[#2a2a2a]">
               <button 
                 onClick={handleToggleLifecycle}
-                className="flex-1 min-w-[140px] flex items-center justify-center gap-2 h-11 md:h-[52px] rounded-xl bg-[#b48470] hover:bg-[#a37562] text-[13px] md:text-[15px] font-bold text-white shadow-md shadow-[#b48470]/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                className="flex-1 min-w-[120px] flex items-center justify-center gap-2 h-11 md:h-[50px] rounded-xl bg-[#b48470] hover:bg-[#a37562] text-[13px] md:text-[15px] font-bold text-white shadow-md shadow-[#b48470]/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
               >
                 {viewMode === "details" ? (
                   <><Activity size={18} /> Track Lifecycle</>
@@ -653,47 +696,72 @@ export default function TicketDetailClient({
                   <><FileText size={18} /> View Details</>
                 )}
               </button>
-              
-              <button 
-                onClick={handleUpvote}
-                className={`flex h-11 md:h-[52px] min-w-[60px] md:min-w-[80px] justify-center items-center gap-1.5 md:gap-2 rounded-xl border px-3 md:px-4 transition-all font-bold text-sm md:text-base ${
-                  hasUpvoted 
-                    ? 'border-[#b48470] bg-[#b48470] text-white shadow-md shadow-[#b48470]/40 hover:bg-[#a37562]' 
-                    : 'border-gray-200 bg-white text-gray-700 shadow-sm hover:border-gray-300 hover:bg-gray-50 dark:border-[#333] dark:bg-[#2a2a2a] dark:text-gray-300 dark:hover:bg-[#444]'
-                }`}
-              >
-                <ArrowUp size={20} className={hasUpvoted ? "stroke-[3px]" : "stroke-[2.5px]"} />
-                <span>{upvoteCount}</span>
-              </button>
 
-              {/* Pressure Level Indicator */}
-              {ticket && (
-                <div className="flex flex-col gap-1 min-w-[100px]">
-                  <div className="flex justify-between text-[8px] font-bold text-gray-500 dark:text-gray-500 uppercase tracking-tighter">
-                    <span>Pressure</span>
-                    <span className="text-[#b48470]">Tier {getTieredTwitterHandles(ticket.category_id, ticket.assigned_department, upvoteCount).tier}</span>
+              {isPendingClosure ? (
+                <div className="flex-1 min-w-[260px] rounded-3xl border border-gray-200/80 bg-white/80 dark:border-[#333]/70 dark:bg-[#1b1b1b]/70 p-3 backdrop-blur-xl">
+                  <div className="mb-3 text-sm font-semibold text-gray-600 dark:text-gray-300">
+                    This ticket is awaiting your closure confirmation.
                   </div>
-                  <div className="h-1.5 w-full bg-gray-200 dark:bg-[#333] rounded-full overflow-hidden flex">
-                    {[1, 2, 3, 4].map((t) => (
-                      <div 
-                        key={t}
-                        className={`h-full flex-1 border-r border-white dark:border-[#161616] last:border-0 transition-colors duration-500 ${
-                          getTieredTwitterHandles(ticket.category_id, ticket.assigned_department, upvoteCount).tier >= t 
-                            ? 'bg-[#b48470]' 
-                            : 'bg-transparent'
-                        }`}
-                      />
-                    ))}
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => handleClosureDecision('resolved')}
+                      disabled={isSubmittingClosure}
+                      className="flex h-11 items-center justify-center rounded-2xl bg-emerald-600 text-white font-bold text-sm transition-all hover:bg-emerald-500 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Confirm Resolved
+                    </button>
+                    <button
+                      onClick={() => handleClosureDecision('reopened')}
+                      disabled={isSubmittingClosure}
+                      className="flex h-11 items-center justify-center rounded-2xl border border-orange-400 bg-orange-50 text-orange-700 font-bold text-sm transition-all hover:bg-orange-100 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 dark:bg-orange-500/10 dark:text-orange-200 dark:border-orange-500/50"
+                    >
+                      Not Resolved
+                    </button>
                   </div>
                 </div>
+              ) : (
+                <>
+                  <button 
+                    onClick={handleUpvote}
+                    className={`flex h-10 md:h-[48px] min-w-[56px] md:min-w-[72px] justify-center items-center gap-1.5 md:gap-2 rounded-xl border px-3 md:px-4 transition-all font-bold text-sm md:text-base ${
+                      hasUpvoted 
+                        ? 'border-[#b48470] bg-[#b48470] text-white shadow-md shadow-[#b48470]/40 hover:bg-[#a37562]' 
+                        : 'border-gray-200 bg-white text-gray-700 shadow-sm hover:border-gray-300 hover:bg-gray-50 dark:border-[#333] dark:bg-[#2a2a2a] dark:text-gray-300 dark:hover:bg-[#444]'
+                    }`}
+                  >
+                    <ArrowUp size={18} className={hasUpvoted ? "stroke-[3px]" : "stroke-[2.5px]"} />
+                    <span>{upvoteCount}</span>
+                  </button>
+
+                  {ticket && (
+                    <div className="flex flex-col gap-1 min-w-[100px]">
+                      <div className="flex justify-between text-[8px] font-bold text-gray-500 dark:text-gray-500 uppercase tracking-tighter">
+                        <span>Pressure</span>
+                        <span className="text-[#b48470]">Tier {getTieredTwitterHandles(ticket.category_id, ticket.assigned_department, upvoteCount).tier}</span>
+                      </div>
+                      <div className="h-1.5 w-full bg-gray-200 dark:bg-[#333] rounded-full overflow-hidden flex">
+                        {[1, 2, 3, 4].map((t) => (
+                          <div 
+                            key={t}
+                            className={`h-full flex-1 border-r border-white dark:border-[#161616] last:border-0 transition-colors duration-500 ${
+                              getTieredTwitterHandles(ticket.category_id, ticket.assigned_department, upvoteCount).tier >= t 
+                                ? 'bg-[#b48470]' 
+                                : 'bg-transparent'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
 
               <button 
                 onClick={handleShareToX}
-                className="flex h-11 w-11 md:h-[52px] md:w-[52px] items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700 shadow-sm hover:border-gray-300 hover:bg-gray-50 hover:text-black dark:border-[#333] dark:bg-[#2a2a2a] dark:text-gray-300 dark:hover:bg-[#444] dark:hover:text-white transition-all shrink-0 relative"
+                className="flex h-10 w-10 md:h-[48px] md:w-[48px] items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700 shadow-sm hover:border-gray-300 hover:bg-gray-50 hover:text-black dark:border-[#333] dark:bg-[#2a2a2a] dark:text-gray-300 dark:hover:bg-[#444] dark:hover:text-white transition-all shrink-0 relative"
                 title="Share to X / Twitter"
               >
-                <Share2 size={20} />
+                <Share2 size={18} />
                 {ticket && getTieredTwitterHandles(ticket.category_id, ticket.assigned_department, upvoteCount).tier >= 3 && (
                   <span className="absolute -top-1 -right-1 flex h-3 w-3">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#b48470] opacity-75"></span>

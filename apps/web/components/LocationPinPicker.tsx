@@ -4,11 +4,14 @@ import { useEffect, useMemo } from "react";
 import { MapContainer, Marker, TileLayer, useMap } from "react-leaflet";
 import type { LatLngExpression } from "leaflet";
 import L from "leaflet";
+import { useTheme } from "@/components/ThemeProvider";
+import { getMapTileLayerConfig } from "@/lib/map-tiles";
 
 type Props = {
   lat: number;
   lng: number;
   onPinMove: (lat: number, lng: number) => void;
+  highQuality?: boolean;
 };
 
 function RecenterMap({ center }: { center: LatLngExpression }) {
@@ -21,7 +24,13 @@ function RecenterMap({ center }: { center: LatLngExpression }) {
   return null;
 }
 
-export default function LocationPinPicker({ lat, lng, onPinMove }: Props) {
+export default function LocationPinPicker({ lat, lng, onPinMove, highQuality = true }: Props) {
+  const { theme } = useTheme();
+  const tileConfig = useMemo(
+    () => getMapTileLayerConfig({ theme, highQuality }),
+    [highQuality, theme]
+  );
+
   useEffect(() => {
     // Ensure marker icons work correctly in Next.js runtime.
     delete (L.Icon.Default.prototype as { _getIconUrl?: () => string })._getIconUrl;
@@ -38,8 +47,11 @@ export default function LocationPinPicker({ lat, lng, onPinMove }: Props) {
     <div className="h-40 w-full overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
       <MapContainer center={center} zoom={15} style={{ height: "100%", width: "100%" }}>
         <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          attribution={tileConfig.attribution}
+          url={tileConfig.url}
+          detectRetina={tileConfig.detectRetina}
+          maxNativeZoom={tileConfig.maxNativeZoom}
+          subdomains={tileConfig.subdomains}
         />
         <RecenterMap center={center} />
         <Marker

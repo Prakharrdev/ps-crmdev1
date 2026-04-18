@@ -4,6 +4,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { X, Play, Pause, Maximize, MapPin, Loader2, Plus, Save, Trash2, Video } from 'lucide-react';
 import { StatusBadge, CameraStatus } from './StatusBadge';
 import { VerificationDropdown } from './VerificationDropdown';
+import { DashcamFrameOverlay } from './DashcamFrameOverlay';
+import type { DashcamOverlayState, DashcamPrecomputedArtifact } from './dashcam-review-types';
 import { cn } from "@/src/lib/utils";
 import { supabase } from "@/src/lib/supabase";
 
@@ -16,12 +18,24 @@ export interface CameraData {
   digipin: string;
   video_url: string;
   status: CameraStatus;
+  generated_ticket_id?: string;
   verification_result?: string;
 }
+
+const toVerificationLabel = (value?: string): string | undefined => {
+  if (value === 'repaired') return 'Repaired';
+  if (value === 'not_repaired') return 'Not Repaired';
+  return undefined;
+};
 
 interface CameraCardProps {
   data: CameraData;
   isAddMode?: boolean;
+  localOnly?: boolean;
+  reviewMode?: boolean;
+  videoOnlyMode?: boolean;
+  reviewArtifact?: DashcamPrecomputedArtifact | null;
+  onOverlayStateChange?: (state: DashcamOverlayState | null) => void;
   onUpdate?: (id: string, updates: Partial<CameraData>) => void;
   onSave?: (data: CameraData, file: File) => void;
   onDelete?: (id: string) => void;
@@ -31,6 +45,11 @@ interface CameraCardProps {
 export const CameraCard: React.FC<CameraCardProps> = ({ 
   data, 
   isAddMode = false, 
+  localOnly = false,
+  reviewMode = false,
+  videoOnlyMode = false,
+  reviewArtifact,
+  onOverlayStateChange,
   onUpdate, 
   onSave, 
   onDelete,
@@ -57,7 +76,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
 
   // Real-time listener: auto-activate dropdown when worker triggers Pending Verification
   useEffect(() => {
-    if (isAddMode || !localData.camera_id) return;
+    if (localOnly || isAddMode || !localData.camera_id) return;
 
     const channel = supabase
       .channel(`camera-status-${localData.camera_id}`)
@@ -71,11 +90,25 @@ export const CameraCard: React.FC<CameraCardProps> = ({
         },
         (payload: any) => {
           const newStatus = payload.new?.last_status as CameraStatus | undefined;
+          const newGeneratedTicketId = payload.new?.generated_ticket_id as string | undefined;
+          const newVerificationResult = payload.new?.verification_status as string | undefined;
           if (newStatus) {
-            setLocalData(prev => ({ ...prev, status: newStatus }));
-            if (onUpdate && localData.camera_id) {
-              onUpdate(localData.camera_id, { status: newStatus });
-            }
+            setLocalData(prev => {
+              const next = {
+                ...prev,
+                status: newStatus,
+                generated_ticket_id: newGeneratedTicketId ?? prev.generated_ticket_id,
+                verification_result: toVerificationLabel(newVerificationResult) ?? prev.verification_result,
+              };
+              if (onUpdate && localData.camera_id) {
+                onUpdate(localData.camera_id, {
+                  status: newStatus,
+                  generated_ticket_id: next.generated_ticket_id,
+                  verification_result: next.verification_result,
+                });
+              }
+              return next;
+            });
           }
         }
       )
@@ -83,13 +116,27 @@ export const CameraCard: React.FC<CameraCardProps> = ({
 
     return () => { supabase.removeChannel(channel); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAddMode, localData.camera_id]);
+  }, [localOnly, isAddMode, localData.camera_id]);
 
   // --- Logic ---
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
   const handleVideoEnd = async () => {
     if (isAddMode || !onUpdate || !localData.camera_id) return;
+
+    if (localOnly) {
+      if (reviewMode) {
+        setIsPlaying(false);
+        return;
+      }
+
+      setIsPlaying(false);
+      onUpdate(localData.camera_id, { status: 'Processing' });
+      window.setTimeout(() => {
+        onUpdate(localData.camera_id!, { status: 'Idle' });
+      }, 800);
+      return;
+    }
     
     const requestId = `cctv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const startedAt = Date.now();
@@ -200,7 +247,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
 
       onUpdate(localData.camera_id, { 
         status: finalStatus,
-        verification_result: displayedTicketId
+        generated_ticket_id: displayedTicketId,
       });
 
     } catch (err) {
@@ -213,6 +260,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
   };
 
   const resolveDigipin = async (lat: number, lng: number) => {
+    if (localOnly) return;
     if (!lat || !lng) return;
     setIsResolvingDigipin(true);
     try {
@@ -234,14 +282,30 @@ export const CameraCard: React.FC<CameraCardProps> = ({
 
   const handleVerification = async (verificationResult: 'Repaired' | 'Not Repaired') => {
     if (!onUpdate || !localData.camera_id) return;
+
+    if (localOnly) {
+      const finalStatus: CameraStatus = verificationResult === 'Repaired' ? 'Closed' : 'Ticket Generated';
+      onUpdate(localData.camera_id, {
+        status: finalStatus,
+        verification_result: verificationResult,
+      });
+      return;
+    }
     
     setIsVerifying(true);
     const resultValue = verificationResult === 'Repaired' ? 'repaired' : 'not_repaired';
     
     try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
       const response = await fetch(`${apiUrl}/cctv/verify`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
         body: JSON.stringify({
           camera_id: localData.camera_id,
           verification_result: resultValue
@@ -252,12 +316,74 @@ export const CameraCard: React.FC<CameraCardProps> = ({
       
       if (result.status && result.status.startsWith('verified_')) {
         setVerifyError(null);
+
+        // If backend couldn't update complaint because of DB trigger auth context,
+        // finalize the complaint transition via the admin's authenticated session.
+        if (result.complaint_id && !result.complaint_update_applied) {
+          const nextTicketStatus = result.ticket_status === 'resolved' ? 'resolved' : 'submitted';
+          const verifiedAt = typeof result.verified_at === 'string' ? result.verified_at : new Date().toISOString();
+
+          const { error: complaintUpdateError } = await supabase
+            .from('complaints')
+            .update({
+              status: nextTicketStatus,
+              assigned_worker_id: null,
+              resolved_at: nextTicketStatus === 'resolved' ? verifiedAt : null,
+              cctv_verification_status: resultValue,
+              cctv_verified_at: verifiedAt,
+            })
+            .eq('id', result.complaint_id);
+
+          if (complaintUpdateError) {
+            console.error('Client-side complaint verification update failed:', complaintUpdateError);
+            setVerifyError(complaintUpdateError.message || 'Verification applied to camera, but ticket sync failed.');
+            return;
+          }
+
+          try {
+            const notifyResponse = await fetch(`${apiUrl}/api/notifications/complaint-email`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+              },
+              body: JSON.stringify({
+                complaint_id: result.complaint_id,
+                event_type: 'status_changed',
+                status: nextTicketStatus,
+                worker_id_override: result.assigned_worker_id ?? undefined,
+              }),
+            });
+
+            if (!notifyResponse.ok) {
+              const notifyBody = await notifyResponse.text().catch(() => '');
+              console.error('CCTV verification status email trigger failed:', notifyResponse.status, notifyBody);
+            }
+          } catch (notifyErr) {
+            console.error('CCTV verification status email request failed:', notifyErr);
+          }
+
+          if (result.assigned_worker_id) {
+            const { error: workerReleaseError } = await supabase
+              .from('worker_profiles')
+              .update({
+                current_complaint_id: null,
+                availability: 'available',
+              })
+              .eq('worker_id', result.assigned_worker_id);
+
+            if (workerReleaseError) {
+              console.error('Worker release after CCTV verification failed:', workerReleaseError);
+            }
+          }
+        }
+
         // Update camera status based on verification result
         let finalStatus: CameraStatus = 'Idle';
         if (result.verification_status === 'repaired') {
           finalStatus = 'Closed';
         } else if (result.verification_status === 'not_repaired') {
-          finalStatus = 'In Progress';
+          finalStatus = 'Ticket Generated';
         }
 
         onUpdate(localData.camera_id, {
@@ -373,6 +499,16 @@ export const CameraCard: React.FC<CameraCardProps> = ({
               onPause={() => setIsPlaying(false)}
               playsInline
             />
+
+            {localOnly && reviewMode && reviewArtifact && (
+              <DashcamFrameOverlay
+                videoRef={videoRef}
+                artifact={reviewArtifact}
+                enabled
+                onOverlayStateChange={onOverlayStateChange}
+              />
+            )}
+
             {localData.status === 'Processing' && (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 backdrop-blur-[4px] z-20">
                 <Loader2 className="w-10 h-10 animate-spin text-white mb-3" />
@@ -411,105 +547,111 @@ export const CameraCard: React.FC<CameraCardProps> = ({
         )}
       </div>
 
-      {/* Location Section */}
-      <div className={cn("p-3 space-y-2 border-b border-gray-100 dark:border-[#2a2a2a]", isFieldsDisabled && "opacity-40 grayscale pointer-events-none")}>
-        <div className="grid grid-cols-2 gap-2">
-          <div className="space-y-1">
-            <label className="text-[9px] uppercase font-bold text-gray-400">Latitude</label>
-            <input
-              type="number"
-              disabled={isFieldsDisabled}
-              value={localData.latitude || ''}
-              step="0.0001"
-              placeholder="e.g. 28.6139"
-              onChange={(e) => {
-                const val = parseFloat(e.target.value);
-                if (isAddMode) setLocalData(prev => ({ ...prev, latitude: val }));
-                else if (onUpdate && localData.camera_id) onUpdate(localData.camera_id, { latitude: val });
-              }}
-              onBlur={() => resolveDigipin(localData.latitude, localData.longitude)}
-              className="w-full bg-gray-50 dark:bg-[#161616] text-[11px] p-1.5 rounded border border-gray-100 dark:border-[#2a2a2a] focus:ring-1 focus:ring-[#C9A84C] outline-none"
-            />
+      {!videoOnlyMode && (
+        <>
+          {/* Location Section */}
+          <div className={cn("p-3 space-y-2 border-b border-gray-100 dark:border-[#2a2a2a]", isFieldsDisabled && "opacity-40 grayscale pointer-events-none")}>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <label className="text-[9px] uppercase font-bold text-gray-400">Latitude</label>
+                <input
+                  type="number"
+                  disabled={isFieldsDisabled}
+                  value={localData.latitude || ''}
+                  step="0.0001"
+                  placeholder="e.g. 28.6139"
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value);
+                    if (isAddMode) setLocalData(prev => ({ ...prev, latitude: val }));
+                    else if (onUpdate && localData.camera_id) onUpdate(localData.camera_id, { latitude: val });
+                  }}
+                  onBlur={() => resolveDigipin(localData.latitude, localData.longitude)}
+                  className="w-full bg-gray-50 dark:bg-[#161616] text-[11px] p-1.5 rounded border border-gray-100 dark:border-[#2a2a2a] focus:ring-1 focus:ring-[#C9A84C] outline-none"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[9px] uppercase font-bold text-gray-400">Longitude</label>
+                <input
+                  type="number"
+                  disabled={isFieldsDisabled}
+                  value={localData.longitude || ''}
+                  step="0.0001"
+                  placeholder="e.g. 77.2090"
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value);
+                    if (isAddMode) setLocalData(prev => ({ ...prev, longitude: val }));
+                    else if (onUpdate && localData.camera_id) onUpdate(localData.camera_id, { longitude: val });
+                  }}
+                  onBlur={() => resolveDigipin(localData.latitude, localData.longitude)}
+                  className="w-full bg-gray-50 dark:bg-[#161616] text-[11px] p-1.5 rounded border border-gray-100 dark:border-[#2a2a2a] focus:ring-1 focus:ring-[#C9A84C] outline-none"
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-2 bg-gray-50 dark:bg-[#161616] p-1.5 rounded border border-gray-100 dark:border-[#2a2a2a]">
+              <MapPin size={12} className="text-[#C9A84C]" />
+              <span className="text-[10px] font-mono font-bold text-gray-600 dark:text-gray-400 flex-1 truncate">
+                {isResolvingDigipin ? "Resolving..." : (localData.digipin || "NO DIGIPIN")}
+              </span>
+              {isResolvingDigipin && <Loader2 size={12} className="animate-spin text-gray-400" />}
+            </div>
           </div>
-          <div className="space-y-1">
-            <label className="text-[9px] uppercase font-bold text-gray-400">Longitude</label>
-            <input
-              type="number"
-              disabled={isFieldsDisabled}
-              value={localData.longitude || ''}
-              step="0.0001"
-              placeholder="e.g. 77.2090"
-              onChange={(e) => {
-                const val = parseFloat(e.target.value);
-                if (isAddMode) setLocalData(prev => ({ ...prev, longitude: val }));
-                else if (onUpdate && localData.camera_id) onUpdate(localData.camera_id, { longitude: val });
-              }}
-              onBlur={() => resolveDigipin(localData.latitude, localData.longitude)}
-              className="w-full bg-gray-50 dark:bg-[#161616] text-[11px] p-1.5 rounded border border-gray-100 dark:border-[#2a2a2a] focus:ring-1 focus:ring-[#C9A84C] outline-none"
-            />
-          </div>
-        </div>
-        <div className="flex items-center gap-2 bg-gray-50 dark:bg-[#161616] p-1.5 rounded border border-gray-100 dark:border-[#2a2a2a]">
-          <MapPin size={12} className="text-[#C9A84C]" />
-          <span className="text-[10px] font-mono font-bold text-gray-600 dark:text-gray-400 flex-1 truncate">
-            {isResolvingDigipin ? "Resolving..." : (localData.digipin || "NO DIGIPIN")}
-          </span>
-          {isResolvingDigipin && <Loader2 size={12} className="animate-spin text-gray-400" />}
-        </div>
-      </div>
 
-      {/* Footer / Status */}
-      <div className={cn("p-3 space-y-3", isAddMode && "opacity-30 grayscale pointer-events-none")}>
-        <div className="flex items-center justify-between">
-          <span className="text-[10px] uppercase font-black text-gray-400 tracking-tighter">Current Status</span>
-          <StatusBadge status={localData.status} />
-        </div>
+          {/* Footer / Status */}
+          <div className={cn("p-3 space-y-3", isAddMode && "opacity-30 grayscale pointer-events-none")}>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] uppercase font-black text-gray-400 tracking-tighter">Current Status</span>
+              <StatusBadge status={localData.status} />
+            </div>
 
-        {/* Ticket Info Section */}
-        {(localData.status === 'Ticket Generated' || localData.status === 'Duplicate Ticket' || localData.status === 'Pending Verification') && localData.verification_result && (
-          <div className={cn(
-            "p-2 rounded border",
-            localData.status === 'Duplicate Ticket'
-              ? "bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800"
-              : "bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800"
-          )}>
-            <span className={cn(
-              "text-[9px] uppercase font-black tracking-tighter block mb-1",
-              localData.status === 'Duplicate Ticket'
-                ? "text-orange-700 dark:text-orange-400"
-                : "text-blue-700 dark:text-blue-400"
-            )}>
-              {localData.status === 'Duplicate Ticket' ? 'Duplicate Of Ticket' : 'Generated Ticket'}
-            </span>
-            <span className={cn(
-              "text-[10px] font-mono font-bold break-all",
-              localData.status === 'Duplicate Ticket'
-                ? "text-orange-900 dark:text-orange-300"
-                : "text-blue-900 dark:text-blue-300"
-            )}>
-              {localData.verification_result?.startsWith('DL-') ? localData.verification_result : `ID: ${localData.verification_result?.substring(0, 8)}...`}
-            </span>
+            {/* Ticket Info Section */}
+            {(localData.status === 'Ticket Generated' || localData.status === 'Duplicate Ticket' || localData.status === 'Pending Verification') && localData.generated_ticket_id && (
+              <div className={cn(
+                "p-2 rounded border",
+                localData.status === 'Duplicate Ticket'
+                  ? "bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800"
+                  : "bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800"
+              )}>
+                <span className={cn(
+                  "text-[9px] uppercase font-black tracking-tighter block mb-1",
+                  localData.status === 'Duplicate Ticket'
+                    ? "text-orange-700 dark:text-orange-400"
+                    : "text-blue-700 dark:text-blue-400"
+                )}>
+                  {localData.status === 'Duplicate Ticket' ? 'Duplicate Of Ticket' : 'Generated Ticket'}
+                </span>
+                <span className={cn(
+                  "text-[10px] font-mono font-bold break-all",
+                  localData.status === 'Duplicate Ticket'
+                    ? "text-orange-900 dark:text-orange-300"
+                    : "text-blue-900 dark:text-blue-300"
+                )}>
+                  {localData.generated_ticket_id.startsWith('DL-')
+                    ? localData.generated_ticket_id
+                    : `ID: ${localData.generated_ticket_id.substring(0, 8)}...`}
+                </span>
+              </div>
+            )}
+            
+            <div className="space-y-1">
+               <span className="text-[10px] uppercase font-black text-gray-400 tracking-tighter">Field Verification</span>
+               <VerificationDropdown 
+                  value={localData.verification_result || ''}
+                  isEnabled={localData.status === 'Pending Verification' && !isVerifying}
+                  onChange={(val) => handleVerification(val as 'Repaired' | 'Not Repaired')}
+               />
+               {isVerifying && (
+                 <div className="flex items-center justify-center gap-2 py-2 text-blue-600 dark:text-blue-400">
+                   <Loader2 size={12} className="animate-spin" />
+                   <span className="text-[9px] font-bold">Verifying...</span>
+                 </div>
+               )}
+               {verifyError && (
+                 <p className="text-[9px] font-semibold text-red-600 dark:text-red-400 mt-1">{verifyError}</p>
+               )}
+            </div>
           </div>
-        )}
-        
-        <div className="space-y-1">
-           <span className="text-[10px] uppercase font-black text-gray-400 tracking-tighter">Field Verification</span>
-           <VerificationDropdown 
-              value={localData.verification_result || ''}
-              isEnabled={localData.status === 'Pending Verification' && !isVerifying}
-              onChange={(val) => handleVerification(val as 'Repaired' | 'Not Repaired')}
-           />
-           {isVerifying && (
-             <div className="flex items-center justify-center gap-2 py-2 text-blue-600 dark:text-blue-400">
-               <Loader2 size={12} className="animate-spin" />
-               <span className="text-[9px] font-bold">Verifying...</span>
-             </div>
-           )}
-           {verifyError && (
-             <p className="text-[9px] font-semibold text-red-600 dark:text-red-400 mt-1">{verifyError}</p>
-           )}
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 };

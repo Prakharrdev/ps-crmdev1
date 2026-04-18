@@ -1,7 +1,7 @@
 // apps/web/app/authority/track/page.tsx
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import dynamic from "next/dynamic"
 import { supabase } from "@/src/lib/supabase"
 import { AssignDropdown, ComplaintDetailPanel } from "../_components/ComplaintDetailPanel"
@@ -144,7 +144,6 @@ export default function TrackPage() {
   const [expandedId,   setExpandedId]   = useState<string | null>(null)
   const [dept,         setDept]         = useState("")
   const [recenterTrigger, setRecenterTrigger] = useState(0)
-  const detailRef = useRef<HTMLDivElement>(null)
 
   async function applyLiveUpvoteCounts(rows: Complaint[]): Promise<Complaint[]> {
     if (rows.length === 0) return rows
@@ -269,12 +268,6 @@ export default function TrackPage() {
       .subscribe()
     return () => { supabase.removeChannel(ch) }
   }, [dept])
-
-  useEffect(() => {
-    if (expandedId && detailRef.current) {
-      setTimeout(() => detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50)
-    }
-  }, [expandedId])
 
   const hasWorkers = workers.length > 0
 
@@ -416,7 +409,7 @@ export default function TrackPage() {
             )}
           </p>
           <button onClick={exportCSV}
-            className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors dark:border-[#2a2a2a] dark:bg-[#1e1e1e] dark:text-gray-300">
+            className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors dark:border-[#2a2a2a] dark:bg-[#1a1a1a] dark:text-gray-300">
             Export CSV
           </button>
         </div>
@@ -425,17 +418,17 @@ export default function TrackPage() {
         <div className="mb-3 flex flex-wrap gap-2">
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Search ticket, title, address…"
-            className="flex-1 min-w-44 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs shadow-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#b4725a] dark:border-[#2a2a2a] dark:bg-[#1e1e1e] dark:text-gray-200"
+            className="flex-1 min-w-44 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs shadow-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#b4725a] dark:border-[#2a2a2a] dark:bg-[#1a1a1a] dark:text-gray-200"
           />
 
           {/* Sort */}
           <div className="relative">
             <button onClick={() => { setIsSortOpen(o => !o); setIsStatOpen(false); setIsSevOpen(false) }}
-              className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 transition-colors dark:border-[#2a2a2a] dark:bg-[#1e1e1e] dark:text-gray-300">
+              className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 transition-colors dark:border-[#2a2a2a] dark:bg-[#1a1a1a] dark:text-gray-300">
               {{ latest:"Latest", oldest:"Oldest", severity:"Severity", upvotes:"Upvoted", sla:"SLA" }[sortBy] ?? "Sort"}
               <span className="text-[10px] opacity-60">▼</span>
             </button>
-            <div className={`absolute left-0 top-full z-50 mt-1 w-38 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl dark:border-[#2a2a2a] dark:bg-[#1e1e1e] transition-all duration-200 ${isSortOpen ? "opacity-100 translate-y-0 pointer-events-auto" : "opacity-0 -translate-y-2 pointer-events-none"}`}>
+            <div className={`absolute left-0 top-full z-50 mt-1 w-38 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl dark:border-[#2a2a2a] dark:bg-[#1a1a1a] transition-all duration-200 ${isSortOpen ? "opacity-100 translate-y-0 pointer-events-auto" : "opacity-0 -translate-y-2 pointer-events-none"}`}>
               {[["latest","Latest first"],["oldest","Oldest first"],["severity","By severity"],["upvotes","Most upvoted"],["sla","Urgent SLA first"]].map(([v,l]) => (
                 <button key={v} onClick={() => { setSortBy(v); setIsSortOpen(false) }}
                   className={`block w-full px-3 py-2 text-left text-xs hover:bg-gray-50 dark:hover:bg-[#2a2a2a] transition-colors ${sortBy===v?"font-semibold text-[#b4725a]":"text-gray-700 dark:text-gray-300"}`}>
@@ -448,11 +441,11 @@ export default function TrackPage() {
           {/* Severity filter */}
           <div className="relative">
             <button onClick={() => { setIsSevOpen(o => !o); setIsStatOpen(false); setIsSortOpen(false) }}
-              className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 transition-colors dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
+              className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 transition-colors dark:border-gray-700 dark:bg-[#1a1a1a] dark:text-gray-300">
               {sevFilter === "all" ? "All severity" : getSeverityConfig(sevFilter).label}
               <span className="text-[10px] opacity-60">▼</span>
             </button>
-            <div className={`absolute left-0 top-full z-50 mt-1 w-36 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800 transition-all duration-200 ${isSevOpen ? "opacity-100 translate-y-0 pointer-events-auto" : "opacity-0 -translate-y-2 pointer-events-none"}`}>
+            <div className={`absolute left-0 top-full z-50 mt-1 w-36 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-[#1a1a1a] transition-all duration-200 ${isSevOpen ? "opacity-100 translate-y-0 pointer-events-auto" : "opacity-0 -translate-y-2 pointer-events-none"}`}>
               <button onClick={() => { setSevFilter("all"); setIsSevOpen(false) }}
                 className={`block w-full px-3 py-2 text-left text-xs hover:bg-gray-50 dark:hover:bg-gray-700 ${sevFilter==="all"?"font-semibold text-[#b4725a]":"text-gray-700 dark:text-gray-300"}`}>
                 All severity
@@ -475,11 +468,11 @@ export default function TrackPage() {
           {/* Status */}
           <div className="relative">
             <button onClick={() => { setIsStatOpen(o => !o); setIsSortOpen(false); setIsSevOpen(false) }}
-              className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 transition-colors dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
+              className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 transition-colors dark:border-gray-700 dark:bg-[#1a1a1a] dark:text-gray-300">
               {statusFilter === "all" ? "All statuses" : getStatusMeta(statusFilter as LocalStatus).label}
               <span className="text-[10px] opacity-60">▼</span>
             </button>
-            <div className={`absolute right-0 top-full z-50 mt-1 w-40 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800 transition-all duration-200 ${isStatOpen ? "opacity-100 translate-y-0 pointer-events-auto" : "opacity-0 -translate-y-2 pointer-events-none"}`}>
+            <div className={`absolute right-0 top-full z-50 mt-1 w-40 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-[#1a1a1a] transition-all duration-200 ${isStatOpen ? "opacity-100 translate-y-0 pointer-events-auto" : "opacity-0 -translate-y-2 pointer-events-none"}`}>
               {[["all","All statuses"], ...ALL_STATUSES.map(s => [s, getStatusMeta(s).label])].map(([v,l]) => (
                 <button key={v} onClick={() => { setStatusFilter(v); setIsStatOpen(false) }}
                   className={`block w-full px-3 py-2 text-left text-xs hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${statusFilter===v?"font-semibold text-[#b4725a]":"text-gray-700 dark:text-gray-300"}`}>
@@ -491,7 +484,7 @@ export default function TrackPage() {
         </div>
 
         {/* Compact table */}
-        <div className="overflow-hidden rounded-xl bg-white shadow-sm dark:bg-gray-900">
+        <div className="overflow-hidden rounded-xl bg-white shadow-sm dark:bg-[#1a1a1a]">
           <div className="max-h-[460px] overflow-y-auto">
             <table className="w-full text-xs">
               <thead className="sticky top-0 z-10 bg-gradient-to-r from-[#5b3a2e] to-[#8b5e49] text-white">
@@ -609,15 +602,13 @@ export default function TrackPage() {
         </div>
 
         {expandedComplaint && (
-          <div ref={detailRef} className="mt-4">
-            <ComplaintDetailPanel
-              complaint={expandedComplaint as any}
-              workers={workers}
-              onClose={() => setExpandedId(null)}
-              onAssigned={() => { void fetchData(); setExpandedId(null) }}
-              inline
-            />
-          </div>
+          <ComplaintDetailPanel
+            complaint={expandedComplaint as any}
+            workers={workers}
+            onClose={() => setExpandedId(null)}
+            onAssigned={() => { void fetchData(); setExpandedId(null) }}
+            modal
+          />
         )}
         </div>
       </div>

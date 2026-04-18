@@ -482,13 +482,21 @@ export default function ManualReportForm() {
           .toString()
           .padStart(3, "0")}`;
 
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        const accessToken = session?.access_token ?? "";
+
         /* 4. insert via API route to trigger email notification */
         const cat = childMap.get(selectedCategoryId)!;
         const sev = SEVERITIES[severityIdx];
 
         const res = await fetch("/api/complaints", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+          },
           body: JSON.stringify({
             citizen_id: user.id,
             category_id: cat.id,
