@@ -1,4 +1,9 @@
-# Inference Engine
+# Core API & Server
+fastapi==0.115.12
+uvicorn==0.34.0
+python-multipart==0.0.20
+
+# Inference Engine (GPU Enabled for Cloud Run L4)
 ultralytics==8.4.24
 onnxruntime-gpu==1.20.0
 
