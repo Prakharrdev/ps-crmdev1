@@ -25,15 +25,15 @@ WORKDIR /app
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1 \
     && update-alternatives --set python3 /usr/bin/python3.10
 
-# Copy the requirements file
-COPY requirements.txt .
+# Copy the requirements file (using monorepo path)
+COPY ai-service/requirements.txt .
 
 # Install dependencies (GPU-enabled)
 RUN python3 -m pip install --no-cache-dir --upgrade pip && \
     python3 -m pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application code
-COPY . .
+# Copy the rest of the application code (using monorepo path)
+COPY ai-service/ .
 
 # Set environment variables
 ENV PYTHONPATH=/app
