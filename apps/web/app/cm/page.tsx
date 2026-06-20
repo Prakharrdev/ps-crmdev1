@@ -62,9 +62,9 @@ export default function CMCommandCenterPage() {
   ]);
 
   // Real geographic data (precomputed zones, lazy loaded wards + complaint points)
-  const { zoneRegions } = usePrecomputedZoneRegions();
-  const { wards } = useWardGeoJSON(view !== "delhi");
-  const { points } = useComplaintPoints();
+  const { zoneRegions, status: zoneStatus } = usePrecomputedZoneRegions();
+  const { wards, status: wardStatus } = useWardGeoJSON(true);
+  const { points, loaded: pointsLoaded } = useComplaintPoints();
 
   // Live health scores calculated from DB
   const {
@@ -75,7 +75,7 @@ export default function CMCommandCenterPage() {
     pointsByZone: rawPointsByZone,
     pointsByWard: rawPointsByWard,
     loaded,
-  } = useDelhiHealthScores();
+  } = useDelhiHealthScores(zoneRegions, zoneStatus, wards, wardStatus, points, pointsLoaded);
 
   const selectedZoneHealthScore = useMemo(() => {
     if (!selectedZoneId) return undefined;

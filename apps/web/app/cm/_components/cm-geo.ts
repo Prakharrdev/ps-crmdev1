@@ -414,11 +414,14 @@ export interface LiveZoneHealthScore extends ZoneScore {
  * Hook to calculate live Delhi overall health score, 7-day trend, 
  * per-zone scores, and per-ward scores from complaints.
  */
-export function useDelhiHealthScores() {
-  const { zoneRegions, status: zoneStatus } = usePrecomputedZoneRegions();
-  const { wards, status: wardStatus } = useWardGeoJSON(true); // Always enable to support live calculations
-  const { points, loaded: pointsLoaded } = useComplaintPoints();
-
+export function useDelhiHealthScores(
+  zoneRegions: ZoneFeature[],
+  zoneStatus: GeoStatus,
+  wards: WardFeature[],
+  wardStatus: GeoStatus,
+  points: ComplaintPoint[],
+  pointsLoaded: boolean
+) {
   const loaded = zoneStatus === "ready" && wardStatus === "ready" && pointsLoaded;
 
   const results = useMemo(() => {
