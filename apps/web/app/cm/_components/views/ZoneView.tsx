@@ -224,7 +224,7 @@ export const ZoneView: React.FC<ZoneViewProps> = ({
         ? String(valA).localeCompare(String(valB))
         : String(valB).localeCompare(String(valA));
     });
-  }, [sortField, sortAsc]);
+  }, [departments, sortField, sortAsc]);
 
   return (
     <>

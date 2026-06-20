@@ -230,7 +230,7 @@ export const WardView: React.FC<WardViewProps> = ({
         ? String(valA).localeCompare(String(valB))
         : String(valB).localeCompare(String(valA));
     });
-  }, [sortField, sortAsc]);
+  }, [departments, sortField, sortAsc]);
 
   const handleActionSubmit = (actionName: string) => {
     setActiveActionModal(null);
