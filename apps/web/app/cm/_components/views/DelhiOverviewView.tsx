@@ -71,13 +71,9 @@ export const DelhiOverviewView: React.FC<DelhiOverviewViewProps> = ({
 
   const { interventions } = useLiveDashboardData(points);
 
-  // Search & tab filters for interventions
+  // Search filter for interventions
   const filteredInterventions = useMemo(() => {
     let list = interventions;
-    if (interventionFilter !== "all") {
-      const tab = escalationTabs.find((t) => t.id === interventionFilter);
-      if (tab?.match) list = list.filter(tab.match);
-    }
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       list = list.filter(
@@ -89,7 +85,7 @@ export const DelhiOverviewView: React.FC<DelhiOverviewViewProps> = ({
       );
     }
     return list;
-  }, [interventions, interventionFilter, searchQuery]);
+  }, [interventions, searchQuery]);
 
   return (
     <>

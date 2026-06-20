@@ -191,13 +191,9 @@ export const WardView: React.FC<WardViewProps> = ({
     { id: "escalated", label: "Escalated", match: (i: Intervention) => !!i.escalated },
   ], []);
 
-  // Search & tab filters for interventions
+  // Search filter for interventions
   const filteredInterventions = useMemo(() => {
     let list = interventions;
-    if (interventionFilter !== "all") {
-      const tab = escalationTabs.find((t) => t.id === interventionFilter);
-      if (tab?.match) list = list.filter(tab.match);
-    }
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       list = list.filter(
@@ -209,7 +205,7 @@ export const WardView: React.FC<WardViewProps> = ({
       );
     }
     return list;
-  }, [interventions, interventionFilter, searchQuery, escalationTabs]);
+  }, [interventions, searchQuery]);
 
   const handleSort = (field: keyof DepartmentPerf) => {
     if (sortField === field) setSortAsc(!sortAsc);
