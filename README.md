@@ -27,7 +27,7 @@
 
 ## 🎬 Demo Video
 
-[![JanSamadhan Demo](https://img.youtube.com/vi/4Mb1QKaJfK8/maxresdefault.jpg)](https://www.youtube.com/watch?v=4Mb1QKaJfK8)
+[![JanSamadhan Demo](https://img.youtube.com/vi/4Mb1QKaJfK8/maxresdefault.jpg)](https://youtu.be/JvkJd1MAV3M)
 
 ## 📋 Table of Contents
 
