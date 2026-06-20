@@ -1,0 +1,101 @@
+# JanSamadhan Universal Report Card Configuration — Single Source of Truth
+# Configures the sub-scores, status transition impacts, and composite grades.
+
+# ==========================================
+# 1. GLOBAL GRADING SCALE & WEIGHTS
+# ==========================================
+grading_scale:
+  A: { min_score: 90.0, max_score: 100.0, label: "Excellent Operations" }
+  B: { min_score: 75.0, max_score: 89.99, label: "Good Operations" }
+  C: { min_score: 60.0, max_score: 74.99, label: "Average Performance" }
+  D: { min_score: 45.0, max_score: 59.99, label: "Struggling Operations" }
+  F: { min_score: 0.0,  max_score: 44.99, label: "Critical Attention Required" }
+
+composite_weights:
+  sla: 0.40       # SLA Compliance holds the highest weight
+  quality: 0.30   # Citizen satisfaction and feedback
+  speed: 0.20     # Efficiency and response times
+  volume: 0.10    # Workload and throughput balance
+
+# ==========================================
+# 2. SUB-SCORE TRANSITION AND STATE RULES
+# ==========================================
+sub_scores:
+
+  # --- SLA PILLAR ---
+  sla:
+    base_score: 100.0
+    impact_events:
+      resolved_on_time:
+        impact: +20.0
+        max_cap: 100.0
+      resolved_breached:
+        impact: -40.0
+        min_floor: 0.0
+      became_overdue:
+        impact: -10.0      # Triggered when open ticket crosses SLA deadline
+        min_floor: 0.0
+
+  # --- QUALITY PILLAR ---
+  quality:
+    base_score: 80.0       # Start neutrally at 80% if there is no feedback yet
+    impact_events:
+      citizen_review:
+        formula: "(rating / 5.0) * 100"  # Translates 1-5 star reviews directly to 0-100
+      complaint_reopened:
+        impact: -30.0
+        min_floor: 0.0
+      complaint_escalated:
+        impact: -15.0
+        min_floor: 0.0
+      rejected_without_reason:
+        impact: -25.0
+        min_floor: 0.0
+
+  # --- SPEED PILLAR ---
+  speed:
+    base_score: 100.0
+    transitions:
+      submitted_to_assigned:
+        description: "Administrative assignment time"
+        thresholds:
+          under_12_hours: +10.0
+          over_24_hours: -15.0
+          over_48_hours: -30.0
+      assigned_to_in_progress:
+        description: "Response speed by assigned worker"
+        thresholds:
+          under_6_hours: +5.0
+          over_24_hours: -10.0
+      in_progress_to_resolved:
+        description: "Actual resolution speed"
+        thresholds:
+          under_24_hours: +20.0
+          over_48_hours: -20.0
+          over_72_hours: -40.0
+
+  # --- VOLUME PILLAR ---
+  volume:
+    base_score: 100.0
+    state_rules:
+      active_workload:
+        description: "Workload stress balance"
+        thresholds:
+          worker:
+            optimal_limit: 5
+            penalty_per_extra_ticket: -10.0
+          department:
+            optimal_limit: 150
+            penalty_per_50_extra_tickets: -15.0
+      resolution_bonus:
+        description: "Throughput reward per resolved complaint"
+        impact_per_resolution: +5.0
+        max_cap: 100.0
+
+# ==========================================
+# 3. EXCLUSION & CLEANING RULES
+# ==========================================
+exclusions:
+  exclude_from_rankings:
+    - column: "assigned_department"
+      values: ["UNASSIGNED", "unassigned", null]

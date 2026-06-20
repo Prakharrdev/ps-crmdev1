@@ -1,0 +1,113 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "UniversalReportCard",
+  "type": "object",
+  "description": "Universal schema contract for reporting performance metrics of any entity in the system.",
+  "properties": {
+    "entity_type": {
+      "type": "string",
+      "enum": ["department", "worker", "authority", "ward", "category", "citizen"]
+    },
+    "entity_id": {
+      "type": "string",
+      "description": "The unique identifier or name of the entity (e.g. 'PWD' or worker UUID)."
+    },
+    "grade": {
+      "type": "string",
+      "enum": ["A", "B", "C", "D", "F"]
+    },
+    "composite_score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Weighted average of the 4 pillar scores."
+    },
+    "last_updated": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "pillars": {
+      "type": "object",
+      "properties": {
+        "sla": {
+          "type": "object",
+          "properties": {
+            "score": { "type": "number", "minimum": 0, "maximum": 100 },
+            "status": { "type": "string", "enum": ["healthy", "warning", "critical"] }
+          },
+          "required": ["score", "status"]
+        },
+        "quality": {
+          "type": "object",
+          "properties": {
+            "score": { "type": "number", "minimum": 0, "maximum": 100 },
+            "status": { "type": "string", "enum": ["healthy", "warning", "critical"] }
+          },
+          "required": ["score", "status"]
+        },
+        "speed": {
+          "type": "object",
+          "properties": {
+            "score": { "type": "number", "minimum": 0, "maximum": 100 },
+            "status": { "type": "string", "enum": ["healthy", "warning", "critical"] }
+          },
+          "required": ["score", "status"]
+        },
+        "volume": {
+          "type": "object",
+          "properties": {
+            "score": { "type": "number", "minimum": 0, "maximum": 100 },
+            "status": { "type": "string", "enum": ["healthy", "warning", "critical"] }
+          },
+          "required": ["score", "status"]
+        }
+      },
+      "required": ["sla", "quality", "speed", "volume"]
+    },
+    "context": {
+      "type": "object",
+      "properties": {
+        "peer_rank": {
+          "type": "string",
+          "description": "The rank of this entity among its peers, formatted for human display (e.g. '3rd of 12')."
+        },
+        "trend_direction": {
+          "type": "string",
+          "enum": ["rising", "falling", "stable"]
+        },
+        "score_delta": {
+          "type": "number",
+          "description": "Change in composite score compared to the previous period."
+        },
+        "requires_intervention": {
+          "type": "boolean",
+          "description": "Flags true if composite score is < 50 or breach rate > 60%."
+        }
+      },
+      "required": ["peer_rank", "trend_direction", "score_delta", "requires_intervention"]
+    },
+    "evidence": {
+      "type": "object",
+      "description": "Raw data counts used for calculations (e.g., total complaints, breached count, reopened count) to ensure total transparency for the LLM.",
+      "properties": {
+        "total_complaints": { "type": "integer" },
+        "resolved_complaints": { "type": "integer" },
+        "breached_complaints": { "type": "integer" },
+        "reopened_complaints": { "type": "integer" },
+        "escalated_complaints": { "type": "integer" },
+        "active_workload": { "type": "integer" }
+      },
+      "required": ["total_complaints", "resolved_complaints", "breached_complaints"]
+    }
+  },
+  "required": [
+    "entity_type",
+    "entity_id",
+    "grade",
+    "composite_score",
+    "last_updated",
+    "pillars",
+    "context",
+    "evidence"
+  ]
+}
